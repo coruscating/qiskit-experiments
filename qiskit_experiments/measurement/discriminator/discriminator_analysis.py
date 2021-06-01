@@ -5,6 +5,7 @@ Standard discriminator analysis class.
 import numpy as np
 from qiskit_experiments.base_analysis import BaseAnalysis, AnalysisResult
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
+from .discriminator_nosklearn import LDAnosklearn, QDAnosklearn
 
 
 try:
@@ -30,13 +31,16 @@ class DiscriminatorAnalysis(BaseAnalysis):
                 AnalysisResult objects, and ``figures`` may be
                 None, a single figure, or a list of figures.
         """
-        nqubits = len(experiment_data.data()[0]["metadata"]["ylabel"])
+        nqubits = len(experiment_data.data[0]["metadata"]["ylabel"])
         discriminator = [None] * nqubits
         score = [None] * nqubits
         fig, ax = plt.subplots(nqubits)
         fig.tight_layout()
+        
+        
         if nqubits == 1:
             ax = [ax]
+
         for q in range(nqubits):
             _xdata, _ydata = self._process_data(experiment_data, q)
 
@@ -44,7 +48,11 @@ class DiscriminatorAnalysis(BaseAnalysis):
                 discriminator[q] = LinearDiscriminantAnalysis()
             elif discriminator_type == "QDA":
                 discriminator[q] = QuadraticDiscriminantAnalysis()
-
+            elif discriminator_type == "LDAnosklearn":
+                discriminator[q] = LDAnosklearn()
+            elif discriminator_type == "QDAnosklearn":
+                discriminator[q] = QDAnosklearn()
+            
             discriminator[q].fit(_ydata, _xdata)
 
             if plot:
@@ -70,15 +78,15 @@ class DiscriminatorAnalysis(BaseAnalysis):
             score[q] = discriminator[q].score(_ydata, _xdata)
 
         if discriminator_type == "LDA":
-            analysis_result = AnalysisResult(
-                {
-                    "discriminator": discriminator,
-                    "coef": [d.coef_ for d in discriminator],
-                    "intercept": [d.intercept_ for d in discriminator],
-                    "score": score,
-                    "plt": ax,
-                }
-            )
+           analysis_result = AnalysisResult(
+               {
+                   "discriminator": discriminator,
+                   "coef": [d.coef_ for d in discriminator],
+                   "intercept": [d.intercept_ for d in discriminator],
+                   "score": score,
+                   "plt": ax,
+               }
+           )
 
         elif discriminator_type == "QDA":
             analysis_result = AnalysisResult(
@@ -89,19 +97,40 @@ class DiscriminatorAnalysis(BaseAnalysis):
                     "plt": ax,
                 }
             )
+            
+        elif discriminator_type == "LDAnosklearn":
+            analysis_result = AnalysisResult(
+                {
+                    "discriminator": discriminator,
+                    "score": score,
+                    "plt": ax,
+                }
+            )
+            
+        elif discriminator_type == "QDAnosklearn":
+            analysis_result = AnalysisResult(
+                {
+                    "discriminator": discriminator,
+                    "score": score,
+                    "plt": ax,
+                }
+            )
 
         return analysis_result, None
 
     def _process_data(self, experiment_data, qubit):
         """Returns x and y data for discriminator on specific qubit."""
-        data = experiment_data.data()
-        xdata = np.array([int(data[0]["metadata"]["ylabel"][qubit])] * len(data[0]["memory"]))
-        ydata = data[0]["memory"][:, qubit, :]
+        xdata = np.array(
+            [int(experiment_data.data[0]["metadata"]["ylabel"][qubit])]
+            * len(experiment_data.data[0]["memory"])
+        )
+        ydata = experiment_data.data[0]["memory"][:, qubit, :]
         xdata = np.concatenate(
             (
                 xdata,
-                [int(data[1]["metadata"]["ylabel"][qubit])] * len(data[1]["memory"]),
+                [int(experiment_data.data[1]["metadata"]["ylabel"][qubit])]
+                * len(experiment_data.data[1]["memory"]),
             )
         )
-        ydata = np.concatenate((ydata, data[1]["memory"][:, qubit, :]))
+        ydata = np.concatenate((ydata, experiment_data.data[1]["memory"][:, qubit, :]))
         return xdata, ydata
