@@ -7,7 +7,6 @@ from qiskit_experiments.base_experiment import BaseExperiment
 from qiskit.circuit import QuantumCircuit
 from .discriminator_analysis import DiscriminatorAnalysis
 from typing import List, Optional, Union, Iterable
-from qiskit.qobj.utils import MeasLevel
 
 
 class DiscriminatorExperiment(BaseExperiment):
@@ -15,10 +14,6 @@ class DiscriminatorExperiment(BaseExperiment):
 
     # Analysis class for experiment
     __analysis_class__ = DiscriminatorAnalysis
-
-    # default run options
-    __run_defaults__ = {"meas_level": MeasLevel.KERNELED, "meas_return": "single"}
-
 
     def __init__(
         self,
