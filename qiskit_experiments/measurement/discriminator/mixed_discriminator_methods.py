@@ -87,9 +87,8 @@ class GeometricMethod():
             zone1 = patches.Ellipse(self._means[1], 2*self.distance1[0], 2*self.distance1[1], fill = True, color="green")
             ax.set_title('Ellipse method')
         elif self.discriminator_type == 'RM':
-            print(self._means[0] - self.distance0)
-            zone0 = patches.Rectangle(self._means[0] - self.distance0, 2*self.distance0[0], 2*self.distance0[1], fill = True, color="indigo")
-            zone1 = patches.Rectangle(self._means[1] - self.distance1, 2*self.distance1[0] , 2*self.distance1[1], fill = True, color="green")
+            zone0 = patches.Rectangle((self._means[0][0] - self.distance0[0], self._means[0][1] - self.distance0[1]), 2*self.distance0[0], 2*self.distance0[1], fill = True, color="indigo")
+            zone1 = patches.Rectangle((self._means[1][0] - self.distance1[0], self._means[1][1] - self.distance1[1]), 2*self.distance1[0] , 2*self.distance1[1], fill = True, color="green")
             ax.set_title('Rectangle method')
         zone0.set_clip_box(ax.bbox)
         zone0.set_alpha(0.5)
