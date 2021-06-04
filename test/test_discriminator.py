@@ -23,6 +23,7 @@ from qiskit.test import QiskitTestCase
 from qiskit_experiments.measurement.discriminator import (
     DiscriminatorExperiment,
     DiscriminatorAnalysis,
+    MixedDiscriminatorExperiment
 )
 
 
@@ -127,3 +128,8 @@ class TestDiscriminator(QiskitTestCase):
         backend = DiscriminatorBackend()
         exp = DiscriminatorExperiment(1)
         res = exp.run(backend, shots=10, meas_level=1, meas_return="single").analysis_result(0)
+    def test_single_qubit_mixed_state(self):
+        backend = DiscriminatorBackend()
+        exp = MixedDiscriminatorExperiment(1)
+        res = exp.run(backend, shots=10, meas_level=1, meas_return="single",
+        discriminator_type="EM", distance=[[0.5,0.5]]).analysis_result(0)
