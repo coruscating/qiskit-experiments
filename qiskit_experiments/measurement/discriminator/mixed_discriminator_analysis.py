@@ -121,20 +121,3 @@ class MixedDiscriminatorAnalysis(BaseAnalysis):
             )
 
         return analysis_result, None
-
-    def _process_data(self, experiment_data, qubit):
-        """Returns x and y data for discriminator on specific qubit."""
-        xdata = np.array(
-            [int(experiment_data.data(0)["metadata"]["ylabel"][qubit])]
-            * len(experiment_data.data(0)["memory"])
-        )
-        ydata = np.array(experiment_data.data(0)["memory"])[:, qubit, :]
-        xdata = np.concatenate(
-            (
-                xdata,
-                [int(experiment_data.data(1)["metadata"]["ylabel"][qubit])]
-                * len(experiment_data.data(1)["memory"]),
-            )
-        )
-        ydata = np.concatenate((ydata, np.array(experiment_data.data(1)["memory"])[:, qubit, :]))
-        return xdata, ydata
