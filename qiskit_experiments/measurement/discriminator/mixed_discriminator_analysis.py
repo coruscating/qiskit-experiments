@@ -3,7 +3,8 @@ Discriminator analysis class for mixed states.
 """
 
 import numpy as np
-from qiskit_experiments.base_analysis import BaseAnalysis, AnalysisResult
+from qiskit_experiments.base_analysis import AnalysisResult
+from .discriminator_analysis import DiscriminatorAnalysis
 from .mixed_discriminator_methods import *
 
 
@@ -15,7 +16,7 @@ except ImportError:
     HAS_MATPLOTLIB = False
 
 
-class MixedDiscriminatorAnalysis(BaseAnalysis):
+class MixedDiscriminatorAnalysis(DiscriminatorAnalysis):
     def _run_analysis(
         self, experiment_data, discriminator_type="LDA", plot: bool = True, distance = None, threshold = None, **options
     ):
