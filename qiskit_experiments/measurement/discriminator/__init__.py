@@ -12,3 +12,4 @@
 # that they have been altered from the originals.
 
 from .discriminator_experiment import DiscriminatorExperiment, DiscriminatorAnalysis
+from .esp_discriminator_experiment import ESPDiscriminatorExperiment, ESPDiscriminatorAnalysis
