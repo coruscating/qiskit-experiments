@@ -14,7 +14,7 @@ Data processing utility functions for curve fitting experiments
 """
 # pylint: disable = invalid-name
 
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Callable
 import numpy as np
 from qiskit.exceptions import QiskitError
 
@@ -48,7 +48,7 @@ def filter_data(data: List[Dict[str, any]], **filters) -> List[Dict[str, any]]:
 
 def mean_xy_data(
     xdata: np.ndarray, ydata: np.ndarray, sigma: Optional[np.ndarray] = None, method: str = "sample"
-) -> Tuple[np.ndarray]:
+) -> Tuple[np.ndarray, ...]:
     r"""Return (x, y_mean, sigma) data.
 
     The mean is taken over all ydata values with the same xdata value using
@@ -120,7 +120,46 @@ def mean_xy_data(
     raise QiskitError(f"Unsupported method {method}")
 
 
-def level2_probability(data: Dict[str, any], outcome: str) -> Tuple[float]:
+def multi_mean_xy_data(
+    series: np.ndarray,
+    xdata: np.ndarray,
+    ydata: np.ndarray,
+    sigma: Optional[np.ndarray] = None,
+    method: str = "sample",
+):
+    r"""Return (series, x, y_mean, sigma) data.
+    Performs `mean_xy_data` for each series
+    and returns the concatenated results
+    """
+    series_vals = np.unique(series)
+
+    series_means = []
+    xdata_means = []
+    ydata_means = []
+    sigma_means = []
+
+    # Get x, y, sigma data for series and process mean data
+    for series_val in series_vals:
+        idxs = series == series_val
+        sigma_i = sigma[idxs] if sigma is not None else None
+        x_mean, y_mean, sigma_mean = mean_xy_data(
+            xdata[idxs], ydata[idxs], sigma=sigma_i, method=method
+        )
+        series_means.append(np.full(x_mean.size, series_val, dtype=int))
+        xdata_means.append(x_mean)
+        ydata_means.append(y_mean)
+        sigma_means.append(sigma_mean)
+
+    # Concatenate lists
+    return (
+        np.concatenate(series_means),
+        np.concatenate(xdata_means),
+        np.concatenate(ydata_means),
+        np.concatenate(sigma_means),
+    )
+
+
+def level2_probability(data: Dict[str, any], outcome: str) -> Tuple[float, float]:
     """Return the outcome probability mean and variance.
 
     Args:
@@ -139,7 +178,17 @@ def level2_probability(data: Dict[str, any], outcome: str) -> Tuple[float]:
         :math:`\\sigma^2 = p (1-p) / N`.
     """
     counts = data["counts"]
+
     shots = sum(counts.values())
     p_mean = counts.get(outcome, 0.0) / shots
     p_var = p_mean * (1 - p_mean) / shots
     return p_mean, p_var
+
+
+def probability(outcome: str) -> Callable:
+    """Return probability data processor callback used by the analysis classes."""
+
+    def data_processor(data):
+        return level2_probability(data, outcome)
+
+    return data_processor

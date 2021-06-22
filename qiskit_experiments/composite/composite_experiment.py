@@ -26,7 +26,7 @@ class CompositeExperiment(BaseExperiment):
     __analysis_class__ = CompositeAnalysis
     __experiment_data__ = CompositeExperimentData
 
-    def __init__(self, experiments, qubits, experiment_type=None, circuit_options=None):
+    def __init__(self, experiments, qubits, experiment_type=None):
         """Initialize the composite experiment object.
 
         Args:
@@ -34,16 +34,13 @@ class CompositeExperiment(BaseExperiment):
             qubits (int or Iterable[int]): the number of qubits or list of
                                            physical qubits for the experiment.
             experiment_type (str): Optional, composite experiment subclass name.
-            circuit_options (str): Optional, Optional, dictionary of allowed
-                                   kwargs and default values for the `circuit`
-                                   method.
         """
         self._experiments = experiments
         self._num_experiments = len(experiments)
-        super().__init__(qubits, experiment_type=experiment_type, circuit_options=circuit_options)
+        super().__init__(qubits, experiment_type=experiment_type)
 
     @abstractmethod
-    def circuits(self, backend=None, **circuit_options):
+    def circuits(self, backend=None):
         pass
 
     @property
@@ -55,6 +52,16 @@ class CompositeExperiment(BaseExperiment):
         """Return the component Experiment object"""
         return self._experiments[index]
 
-    def component_analysis(self, index, **kwargs):
+    def component_analysis(self, index):
         """Return the component experiment Analysis object"""
-        return self.component_experiment(index).analysis(**kwargs)
+        return self.component_experiment(index).analysis()
+
+    def _add_job_metadata(self, experiment_data, job, **run_options):
+        # Add composite metadata
+        super()._add_job_metadata(experiment_data, job, **run_options)
+
+        # Add sub-experiment options
+        for i in range(self.num_experiments):
+            sub_exp = self.component_experiment(i)
+            sub_data = experiment_data.component_experiment_data(i)
+            sub_exp._add_job_metadata(sub_data, job, **run_options)
