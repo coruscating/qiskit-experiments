@@ -48,6 +48,7 @@ class ESPDiscriminatorExperiment(BaseExperiment):
         self.backend_model = None
         self.dt = 0
         self.frequency_estimates = [0]*qubits
+        self.anharmonicity_estimates = [-340*1.0e6]*qubits
         self.inst_map = None
 
     def apply_sideband(self, x_01_pulse: Waveform, mod_freq: float, carrier_freq: float, duration: Union[int, float]) -> Waveform:
@@ -83,10 +84,10 @@ class ESPDiscriminatorExperiment(BaseExperiment):
         MHz = 1.0e6 # Megahertz
         GHz = 1.0e9 # Gigahertz 
         qubit_lo_freq = self.frequency_estimates # Qubits frequencies
-        anharm_freq = -340*MHz #340 MHz Anharmonicity of the qubit
+        anharm_freq = self.anharmonicity_estimates #340 MHz Anharmonicity of the qubit
 
         # Frequency Sweep
-        excited_sweep_freqs = np.array([qubit_lo_freq[qubit] + anharm_freq + np.linspace(-40*MHz, 40*MHz, 75) 
+        excited_sweep_freqs = np.array([qubit_lo_freq[qubit] + anharm_freq[qubit] + np.linspace(-40*MHz, 40*MHz, 75) 
                                                 for qubit in range(self.num_qubits)])
         x_pulse_01 = [x_sched_01[qubit].instructions[0][1].pulse for qubit in range(self.num_qubits)]
 
@@ -104,9 +105,9 @@ class ESPDiscriminatorExperiment(BaseExperiment):
                                                     qubit_lo_freq[qubit], x_pulse_01[qubit].duration)
                 temp_sched = pulse.Play(x_pulse_01[qubit], pulse.DriveChannel(qubit))
                 temp_sched |= pulse.Play(freq_sweep_12_pulse, pulse.DriveChannel(qubit)) << temp_sched.duration
-                temp_sched |= measure_sched[qubit] << temp_sched.duration
-                sched |= temp_sched
 
+                sched |= temp_sched
+            sched |= measure_sched << sched.duration
             sched_12.append(sched)
             schedule_lo_freq.append(schedule_lo_freq_dict)
 
@@ -129,20 +130,31 @@ class ESPDiscriminatorExperiment(BaseExperiment):
 
             ax = plt.subplot((self.num_qubits+1)//2, 2, qubit + 1)
 
-            excited_freq_sweep_data = [excited_freq_sweep_result.get_memory(i)[qubit] for i \
-                                    in range(len(excited_freq_sweep_result.results))]
-            
-            #plt.scatter(excited_sweep_freqs[qubit], excited_freq_sweep_data)
-            #plt.show()
-            
+            excited_freq_sweep_data = np.array([excited_freq_sweep_result.get_memory(i)[qubit] for i \
+                                    in range(len(excited_freq_sweep_result.results))])
+
             # Check if the signal data is upwards or downwards
-            if np.argmin(excited_freq_sweep_data) == np.argsort(excited_freq_sweep_data)[0]:
+            datums = [0.5*(np.max(excited_freq_sweep_data) + np.min(excited_freq_sweep_data))]*2
+            up_down = [0]*2
+            while True:
+                up_down_check = [np.real(excited_freq_sweep_data - datum) for datum in datums]
+                if np.sign(up_down_check[0][0]) == np.sign(up_down_check[0][-1]):
+                    up_down = [up_down_check[0][0], up_down_check[0][-1]]
+                    break
+                elif np.sign(up_down_check[1][0]) == np.sign(up_down_check[1][-1]):
+                    up_down = [up_down_check[1][0], up_down_check[1][-1]]
+                    break
+                else:
+                    datums[0] = 0.5*(np.max(excited_freq_sweep_data) + datums[0])
+                    datums[1] = 0.5*(np.min(excited_freq_sweep_data) + datums[1])
+            
+            if up_down[0] > 0 and up_down[-1] > 0:
                 # half-width at half-maximum
                 p3 = excited_sweep_freqs[qubit][np.argmin(excited_freq_sweep_data)] - \
                      excited_sweep_freqs[qubit][np.where(excited_freq_sweep_data < \
                             (np.real(np.max(excited_freq_sweep_data) + np.min(excited_freq_sweep_data)))/2)[0][0]]
                 p4 = np.max(excited_freq_sweep_data) #Constant
-                p2 = qubit_lo_freq[qubit] + anharm_freq #centre of peak
+                p2 = qubit_lo_freq[qubit] + anharm_freq[qubit] #centre of peak
                 p1 = p3*np.pi*(excited_freq_sweep_data[np.where(excited_sweep_freqs[qubit] == p2)[0][0]] - p4) #Amplitude Intenisty
             else:
                 # half-width at half-maximum
@@ -150,7 +162,7 @@ class ESPDiscriminatorExperiment(BaseExperiment):
                     excited_sweep_freqs[qubit][np.where(excited_freq_sweep_data > \
                             (np.real(np.max(excited_freq_sweep_data) - np.min(excited_freq_sweep_data)))/2)[0][0]]   
                 p4 = np.min(excited_freq_sweep_data) #Constant
-                p2 = qubit_lo_freq[qubit] + anharm_freq #centre of peak
+                p2 = qubit_lo_freq[qubit] + anharm_freq[qubit] #centre of peak
                 p1 = p3*np.pi*(excited_freq_sweep_data[np.where(excited_sweep_freqs[qubit] == p2)[0][0]] - p4) #Amplitude Intenisty
 
             fit_sweep_params, _ = curve_fit(lorentzian ,
@@ -183,9 +195,9 @@ class ESPDiscriminatorExperiment(BaseExperiment):
                                                     qubit_lo_freq[qubit], x_pulse_01[qubit].duration)
                 temp_sched = pulse.Play(x_pulse_01[qubit], pulse.DriveChannel(qubit))
                 temp_sched |= pulse.Play(rabi_12_pulse, pulse.DriveChannel(qubit)) << temp_sched.duration
-                temp_sched |= measure_sched[qubit] << temp_sched.duration
+                
                 sched |= temp_sched
-
+            sched |= measure_sched << sched.duration
             rabi_12.append(sched)
 
         excited_rabi_program = assemble(rabi_12,
@@ -242,7 +254,7 @@ class ESPDiscriminatorExperiment(BaseExperiment):
                                     sigma = x_pulse_01[qubit].sigma, name = 'x_12_pulse')
             x_12_pulse = self.apply_sideband(x_12_pulse.get_waveform(), qubit_lo_freq[qubit], 
                                          x_pulse_12_frequency[qubit], x_pulse_01[qubit].duration)
-            sched |= pulse.Play(x_12_pulse, pulse.DriveChannel(0))
+            sched |= pulse.Play(x_12_pulse, pulse.DriveChannel(qubit))
             x_sched_12.append(sched)
         
         return x_sched_12
@@ -298,6 +310,8 @@ class ESPDiscriminatorExperiment(BaseExperiment):
                 self.dt = armonk_backend.configuration().dt
                 self.backend_defaults = armonk_backend.defaults()
                 self.backend_configurations = armonk_backend.configuration()
+                self.anharmonicity_estimates = [armonk_backend.properties().qubit_property(qb)['anharmonicity'][0] 
+                                                            for qb in range(self.num_qubits)]
 
             else:
                 self.backend = backend
@@ -305,18 +319,19 @@ class ESPDiscriminatorExperiment(BaseExperiment):
                 self.dt = backend.configuration().dt
                 self.backend_defaults = backend.defaults(refresh=True)
                 self.backend_configurations = backend.configuration()
+                self.anharmonicity_estimates = [backend.properties().qubit_property(qb)['anharmonicity'][0] 
+                                                            for qb in range(self.num_qubits)]
             
             self.frequency_estimates = self.backend_defaults.qubit_freq_est
             self.inst_map = self.backend_defaults.instruction_schedule_map
 
         x_sched_01 = []
         x_sched_12 = []
-        measure_sched = []
         
         for qubit in range(self.num_qubits):
             x_sched_01.append(self.inst_map.get('x', [qubit]))
-            measure_sched.append(self.inst_map.get('measure', [qubit]))
-
+            
+        measure_sched = self.inst_map.get('measure', range(self.num_qubits))
         x_sched_12 = self.get_sched_12(x_sched_01, measure_sched)
 
         return self.circuit_generator(x_sched_01, x_sched_12)

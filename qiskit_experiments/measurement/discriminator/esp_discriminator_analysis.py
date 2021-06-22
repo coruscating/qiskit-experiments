@@ -33,8 +33,9 @@ class ESPDiscriminatorAnalysis(BaseAnalysis):
                 AnalysisResult objects, and ``figures`` may be
                 None, a single figure, or a list of figures.
         """
-
-        nqubits = len(experiment_data.data[0]["metadata"]["ylabel"])
+        #print(type(experiment_data), experiment_data.data())
+        exp_data = experiment_data.data()
+        nqubits = len(exp_data[0]["metadata"]["ylabel"])
         discriminator = [None] * nqubits
         score = [None] * nqubits
         fig, ax = plt.subplots(nqubits)
@@ -43,7 +44,7 @@ class ESPDiscriminatorAnalysis(BaseAnalysis):
             ax = [ax]
 
         for q in range(nqubits):
-            _xdata, _ydata = self._process_data(experiment_data, q)
+            _xdata, _ydata = self._process_data(exp_data, q)
             
             self._check_data_classes(_xdata)
 
@@ -83,6 +84,7 @@ class ESPDiscriminatorAnalysis(BaseAnalysis):
                     "intercept": [d.intercept_ for d in discriminator],
                     "score": score,
                     "plt": ax,
+                    "success":True,
                 }
             )
 
@@ -93,19 +95,20 @@ class ESPDiscriminatorAnalysis(BaseAnalysis):
                     "rotations": [d.rotations_ for d in discriminator],
                     "score": score,
                     "plt": ax,
+                    "success":True,
                 }
             )
         elif discriminator_type == "sklearn":
-            pass
             analysis_result = AnalysisResult(
                 {
                     "discriminator": discriminator,
                     "score": score,
                     "plt": ax,
+                    "success":True,
                 }
             )
             
-        return analysis_result, None
+        return [analysis_result], None
     
     @staticmethod
     def _type_check_discriminator(classifier):
@@ -130,20 +133,20 @@ class ESPDiscriminatorAnalysis(BaseAnalysis):
     def _process_data(self, experiment_data, qubit):
         """Returns x and y data for discriminator on specific qubit."""
         xdata = np.array(
-            [int(experiment_data.data[0]["metadata"]["ylabel"][qubit])]
-            * len(experiment_data.data[0]["memory"])
+            [int(experiment_data[0]["metadata"]["ylabel"][qubit])]
+            * len(experiment_data[0]["memory"])
         )
-        ydata = experiment_data.data[0]["memory"][:, qubit, :]
+        ydata = experiment_data[0]["memory"][:, qubit, :]
         
-        for idx in range(1, len(experiment_data.data)):
+        for idx in range(1, len(experiment_data)):
             xdata = np.concatenate(
                 (
                     xdata,
-                    [int(experiment_data.data[idx]["metadata"]["ylabel"][qubit])]
-                    * len(experiment_data.data[idx]["memory"]),
+                    [int(experiment_data[idx]["metadata"]["ylabel"][qubit])]
+                    * len(experiment_data[idx]["memory"]),
                 )
             )
-            ydata = np.concatenate((ydata, experiment_data.data[idx]["memory"][:, qubit, :]))
+            ydata = np.concatenate((ydata, experiment_data[idx]["memory"][:, qubit, :]))
             
         return xdata, ydata
     
