@@ -417,11 +417,6 @@ class ExperimentData:
 
         return self._db_data.experiment_type
 
-    @experiment_type.setter
-    def experiment_type(self, new_type: str) -> None:
-        """Sets the parent id"""
-        self._db_data.experiment_type = new_type
-
     @property
     def parent_id(self) -> str:
         """Return parent experiment ID
@@ -719,8 +714,8 @@ class ExperimentData:
         # Add futures for extracting finished job data
         timeout_ids = []
         for job in jobs:
-            print("adding job, id=", job.job_id())
             jid = job.job_id()
+            print("adding job, id=", jid)
             if self.backend is not None and self.backend.name() != job.backend().name():
                 LOG.warning(
                     "Adding a job from a backend (%s) that is different "

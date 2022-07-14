@@ -106,12 +106,11 @@ experiment <https://quantum-computing.ibm.com/experiments/9640736e-d797-4321-b06
 which we’ve made public by editing the ``Share level`` field:
 
 .. jupyter-execute::
-    :hide-output:
     :raises:
 
     from qiskit_experiments.framework.experiment_data import ExperimentData
     service = ExperimentData.get_service_from_backend(backend)
-    load_expdata = ExperimentData.load("9640736e-d797-4321-b063-d503f8e98571", service)
+    load_exp = ExperimentData.load("96b86d51-5200-4270-8ac1-ce4c20188ab9", service)
 
 To display the figure, which is serialized into a string, we need the
 ``SVG`` library:
@@ -128,7 +127,6 @@ To display the figure, which is serialized into a string, we need the
 The analysis results have been retrieved as well:
 
 .. jupyter-execute::
-    :hide-output:
     :raises:
 
     for result in load_expdata.analysis_results():
@@ -137,7 +135,7 @@ The analysis results have been retrieved as well:
 .. jupyter-execute::
     :hide-code:
 
-    print("""AnalysisResult
+    print ("""AnalysisResult
     - name: T1
     - value: 0.0001040+/-0.0000028
     - χ²: 0.8523786276663019
