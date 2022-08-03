@@ -27,6 +27,7 @@ from qiskit.qobj.utils import MeasLevel
 from qiskit.transpiler.timing_constraints import TimingConstraints
 import numpy as np
 from qiskit.providers.options import Options
+from qiskit_experiments.framework import BackendData
 from qiskit_experiments.framework.store_init_args import StoreInitArgs
 from qiskit_experiments.framework.base_analysis import BaseAnalysis
 from qiskit_experiments.framework.experiment_data import ExperimentData
@@ -161,6 +162,7 @@ class BaseExperiment(ABC, StoreInitArgs):
         properties from the supplied backend if required.
         """
         self._backend = backend
+        self._backend_data = BackendData(backend)
 
     def copy(self) -> "BaseExperiment":
         """Return a copy of the experiment"""
@@ -410,33 +412,35 @@ class BaseExperiment(ABC, StoreInitArgs):
     def _run_jobs(self, circuits: List[QuantumCircuit], **run_options) -> List[Job]:
         """Run circuits on backend as 1 or more jobs."""
         # Run experiment jobs
-        max_experiments = getattr(self.backend.configuration(), "max_experiments", 1000000)
-        # temporary solution, split every job...
-        # max_shots = getattr(self.backend.configuration(), "max_shots", None)
+        # max_experiments = getattr(self.backend.configuration(), "max_experiments", 1000000)
+        # # temporary solution, split every job...
+        # # max_shots = getattr(self.backend.configuration(), "max_shots", None)
 
-        def split(a, n):
-            k, m = divmod(len(a), n)
-            return (a[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
+        # def split(a, n):
+        #     k, m = divmod(len(a), n)
+        #     return (a[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
 
-        ops = 0
-        for c in circuits:
-            ops += sum(c.count_ops().values())
-        # 200000 for sherbrooke, 1000000 for other devices
-        max_ops = 200000
+        # ops = 0
+        # for c in circuits:
+        #     ops += sum(c.count_ops().values())
+        # # 200000 for sherbrooke, 1000000 for other devices
+        # max_ops = 200000
 
-        pieces_ops = ops // max_ops + 1
-        pieces_circuits = len(circuits) // max_experiments + 1
-        print("pieces_ops", pieces_ops, " pieces_circuits", pieces_circuits)
+        # pieces_ops = ops // max_ops + 1
+        # pieces_circuits = len(circuits) // max_experiments + 1
+        # print("pieces_ops", pieces_ops, " pieces_circuits", pieces_circuits)
 
-        if pieces_ops >= pieces_circuits and pieces_ops > 1:
-            job_circuits = list(split(circuits, ops // max_ops + 1))
-            print("ops=", ops, "split to ", ops // max_ops + 1)
+        # if pieces_ops >= pieces_circuits and pieces_ops > 1:
+        #     job_circuits = list(split(circuits, ops // max_ops + 1))
+        #     print("ops=", ops, "split to ", ops // max_ops + 1)
 
-        elif pieces_circuits >= pieces_ops and pieces_circuits > 1:
-            print("splitting circuits to ", pieces_circuits)
+        # elif pieces_circuits >= pieces_ops and pieces_circuits > 1:
+        #     print("splitting circuits to ", pieces_circuits)
+        max_circuits = self._backend_data.max_circuits
+        if max_circuits and len(circuits) > max_circuits:
             # Split jobs for backends that have a maximum job size
             job_circuits = [
-                circuits[i : i + max_experiments] for i in range(0, len(circuits), max_experiments)
+                circuits[i : i + max_circuits] for i in range(0, len(circuits), max_circuits)
             ]
         else:
             print("running as a single job")
