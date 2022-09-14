@@ -20,12 +20,11 @@ from qiskit.circuit import Gate
 from qiskit.circuit.library import XGate, SXGate
 from qiskit.providers.backend import Backend
 from qiskit_experiments.framework import BaseExperiment, Options
-from qiskit_experiments.library.characterization.analysis import (
-    FineDragAnalysis,
-)
+from qiskit_experiments.framework.restless_mixin import RestlessMixin
+from qiskit_experiments.curve_analysis.standard_analysis import ErrorAmplificationAnalysis
 
 
-class FineDrag(BaseExperiment):
+class FineDrag(BaseExperiment, RestlessMixin):
     r"""Fine DRAG experiment.
 
     # section: overview
@@ -68,7 +67,7 @@ class FineDrag(BaseExperiment):
         Here, the :math:`s` terms are coefficients of the expansion of an operator :math:`S(t)`
         that generates a transformation that keeps the qubit sub-space isolated from the
         higher-order states. :math:`t_g` is the gate time, :math:`\Omega_x(t)` is the pulse envelope
-        on the in-phase component of the drive and :math:`\lambda_1` is a parmeter of the Hamiltonian.
+        on the in-phase component of the drive and :math:`\lambda_1` is a parameter of the Hamiltonian.
         For additional details please see Ref. [2].
         As in Ref. [2] we now set :math:`s^{(1)}_{x,0,1}` and :math:`s^{(1)}_{z,1}` to zero
         and set :math:`s^{(1)}_{y,0,1}` to :math:`-\lambda_1^2 t_g\Omega_x(t)/8`. This
@@ -126,7 +125,7 @@ class FineDrag(BaseExperiment):
         This is the correction formula in the FineDRAG Updater.
 
     # section: analysis_ref
-        :py:class:`FineDragAnalysis`
+        :py:class:`~qiskit_experiments.curve_analysis.ErrorAmplificationAnalysis`
 
     # section: see_also
         qiskit_experiments.library.calibration.drag.DragCal
@@ -161,7 +160,17 @@ class FineDrag(BaseExperiment):
             gate: The gate that will be repeated.
             backend: Optional, the backend to run the experiment on.
         """
-        super().__init__([qubit], analysis=FineDragAnalysis(), backend=backend)
+        analysis = ErrorAmplificationAnalysis()
+        analysis.set_options(
+            normalization=True,
+            fixed_parameters={
+                "angle_per_gate": 0.0,
+                "phase_offset": np.pi / 2,
+                "amp": 1.0,
+            },
+        )
+
+        super().__init__([qubit], analysis=analysis, backend=backend)
         self.set_experiment_options(gate=gate)
 
     @staticmethod
@@ -202,7 +211,12 @@ class FineDrag(BaseExperiment):
             circuit.measure_all()
 
             if schedule is not None:
-                circuit.add_calibration(schedule.name, self.physical_qubits, schedule, params=[])
+                circuit.add_calibration(
+                    self.experiment_options.gate.name,
+                    self.physical_qubits,
+                    schedule,
+                    params=[],
+                )
 
             circuit.metadata = {
                 "experiment_type": self._type,
@@ -214,6 +228,15 @@ class FineDrag(BaseExperiment):
             circuits.append(circuit)
 
         return circuits
+
+    def _metadata(self):
+        metadata = super()._metadata()
+        # Store measurement level and meas return if they have been
+        # set for the experiment
+        for run_opt in ["meas_level", "meas_return"]:
+            if hasattr(self.run_options, run_opt):
+                metadata[run_opt] = getattr(self.run_options, run_opt)
+        return metadata
 
 
 class FineXDrag(FineDrag):

@@ -14,14 +14,12 @@ Tphi Analysis class.
 """
 
 from typing import List, Tuple
-from uncertainties import ufloat
 
-from qiskit_experiments.framework import (
-    ExperimentData,
-    AnalysisResultData,
-    FitVal,
-)
+from qiskit_experiments.framework import ExperimentData, AnalysisResultData
 from qiskit_experiments.framework.composite.composite_analysis import CompositeAnalysis
+from qiskit_experiments.library.characterization.analysis.t1_analysis import T1Analysis
+from qiskit_experiments.library.characterization.analysis.t2ramsey_analysis import T2RamseyAnalysis
+from qiskit_experiments.exceptions import QiskitError
 
 
 class TphiAnalysis(CompositeAnalysis):
@@ -31,37 +29,48 @@ class TphiAnalysis(CompositeAnalysis):
     A class to analyze :math:`T_\phi` experiments.
     """
 
+    def __init__(self, analyses=None):
+        if analyses is None:
+            analyses = [T1Analysis(), T2RamseyAnalysis()]
+
+        # Validate analyses kwarg
+        if (
+            len(analyses) != 2
+            or not isinstance(analyses[0], T1Analysis)
+            or not isinstance(analyses[1], T2RamseyAnalysis)
+        ):
+            raise QiskitError(
+                "Invalid component analyses for T2phi, analyses must be a pair of "
+                "T1Analysis and T2RamseyAnalysis instances."
+            )
+        super().__init__(analyses, flatten_results=True)
+
     def _run_analysis(
-        self, experiment_data: ExperimentData, **options
+        self, experiment_data: ExperimentData
     ) -> Tuple[List[AnalysisResultData], List["matplotlib.figure.Figure"]]:
         r"""Run analysis for :math:`T_\phi` experiment.
         It invokes CompositeAnalysis._run_analysis that will invoke
         _run_analysis for the two sub-experiments.
         Based on the results, it computes the result for :math:`T_phi`.
         """
-        _, _ = super()._run_analysis(experiment_data, **options)
+        # Run composite analysis and extract T1 and T2star results
+        analysis_results, figures = super()._run_analysis(experiment_data)
+        t1_result = next(filter(lambda res: res.name == "T1", analysis_results))
+        t2star_result = next(filter(lambda res: res.name == "T2star", analysis_results))
 
-        t1_result = experiment_data.child_data(0).analysis_results("T1")
-        t2star_result = experiment_data.child_data(1).analysis_results("T2star")
-        # we use the 'ucert' prefix to denote values that include
-        # uncertainty using the `uncertainties` package
-        uncert_t1_res = ufloat(t1_result.value.value, t1_result.value.stderr)
-        uncert_t2star_res = ufloat(t2star_result.value.value, t2star_result.value.stderr)
-        uncert_reciprocal = (1 / uncert_t2star_res) - (1 / (2 * uncert_t1_res))
-        uncert_tphi = 1 / uncert_reciprocal
-
+        # Calculate Tphi from T1 and T2star
+        tphi = 1 / (1 / t2star_result.value - 1 / (2 * t1_result.value))
         quality_tphi = (
             "good" if (t1_result.quality == "good" and t2star_result.quality == "good") else "bad"
         )
-
-        analysis_results = []
-        analysis_results.append(
-            AnalysisResultData(
-                name="T_phi",
-                value=FitVal(uncert_tphi.nominal_value, uncert_tphi.std_dev),
-                chisq=None,
-                quality=quality_tphi,
-                extra={},
-            )
+        tphi_result = AnalysisResultData(
+            name="T_phi",
+            value=tphi,
+            chisq=None,
+            quality=quality_tphi,
+            extra={"unit": "s"},
         )
-        return analysis_results, []
+
+        # Return combined results
+        analysis_results = [tphi_result] + analysis_results
+        return analysis_results, figures

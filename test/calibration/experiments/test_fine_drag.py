@@ -17,24 +17,15 @@ import copy
 import numpy as np
 
 from qiskit import transpile
-from qiskit.circuit import QuantumCircuit, Gate
-from qiskit.test.mock import FakeArmonk
+from qiskit.circuit import Gate
+from qiskit.providers.fake_provider import FakeArmonkV2
 import qiskit.pulse as pulse
 
 from qiskit_experiments.library import FineDrag, FineXDrag, FineDragCal
-from qiskit_experiments.test.mock_iq_backend import DragBackend
+from qiskit_experiments.test.mock_iq_backend import MockIQBackend
+from qiskit_experiments.test.mock_iq_helpers import MockIQFineDragHelper as FineDragHelper
 from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.calibration_management.basis_gate_library import FixedFrequencyTransmon
-
-
-class FineDragTestBackend(DragBackend):
-    """A simple and primitive backend, to be run by the rough drag tests."""
-
-    def _compute_probability(self, circuit: QuantumCircuit) -> float:
-        """Returns the probability based on the beta, number of gates, and leakage."""
-        n_gates = circuit.count_ops().get("rz", 0) // 2
-
-        return 0.5 * np.sin(n_gates * self._error) + 0.5
 
 
 class TestFineDrag(QiskitExperimentsTestCase):
@@ -54,7 +45,7 @@ class TestFineDrag(QiskitExperimentsTestCase):
 
         drag = FineDrag(0, Gate("Drag", num_qubits=1, params=[]))
         drag.set_experiment_options(schedule=self.schedule)
-        drag.backend = FakeArmonk()
+        drag.backend = FakeArmonkV2()
         for circuit in drag.circuits()[1:]:
             for idx, name in enumerate(["Drag", "rz", "Drag", "rz"]):
                 self.assertEqual(circuit.data[idx][0].name, name)
@@ -65,15 +56,14 @@ class TestFineDrag(QiskitExperimentsTestCase):
         drag = FineDrag(0, Gate("Drag", num_qubits=1, params=[]))
         drag.set_experiment_options(schedule=self.schedule)
         drag.set_transpile_options(basis_gates=["rz", "Drag", "sx"])
-        exp_data = drag.run(FineDragTestBackend())
+        exp_data = drag.run(MockIQBackend(FineDragHelper()))
         self.assertExperimentDone(exp_data)
 
         self.assertEqual(exp_data.analysis_results(0).quality, "good")
 
     def test_end_to_end_no_schedule(self):
         """Test that we can run without a schedule."""
-
-        exp_data = FineXDrag(0).run(FineDragTestBackend())
+        exp_data = FineXDrag(0).run(MockIQBackend(FineDragHelper()))
         self.assertExperimentDone(exp_data)
 
         self.assertEqual(exp_data.analysis_results(0).quality, "good")
@@ -95,9 +85,8 @@ class TestFineDragCal(QiskitExperimentsTestCase):
         super().setUp()
 
         library = FixedFrequencyTransmon()
-
-        self.backend = FineDragTestBackend()
-        self.cals = Calibrations.from_backend(self.backend, library)
+        self.backend = MockIQBackend(FineDragHelper())
+        self.cals = Calibrations.from_backend(self.backend, libraries=[library])
 
     def test_experiment_config(self):
         """Test converting to and from config works"""
@@ -116,7 +105,9 @@ class TestFineDragCal(QiskitExperimentsTestCase):
 
         transpile_opts = copy.copy(drag_cal.transpile_options.__dict__)
         transpile_opts["initial_layout"] = list(drag_cal.physical_qubits)
-        circs = transpile(drag_cal.circuits(), **transpile_opts)
+        circs = transpile(
+            drag_cal.circuits(), inst_map=self.cals.default_inst_map, **transpile_opts
+        )
 
         with pulse.build(name="x") as expected_x:
             pulse.play(pulse.Drag(160, 0.5, 40, 0), pulse.DriveChannel(0))
@@ -130,14 +121,16 @@ class TestFineDragCal(QiskitExperimentsTestCase):
         # run the calibration experiment. This should update the beta parameter of x which we test.
         exp_data = drag_cal.run(self.backend)
         self.assertExperimentDone(exp_data)
-        d_theta = exp_data.analysis_results(1).value.value
+        d_theta = exp_data.analysis_results(1).value.n
         sigma = 40
         target_angle = np.pi
         new_beta = -np.sqrt(np.pi) * d_theta * sigma / target_angle**2
 
         transpile_opts = copy.copy(drag_cal.transpile_options.__dict__)
         transpile_opts["initial_layout"] = list(drag_cal.physical_qubits)
-        circs = transpile(drag_cal.circuits(), **transpile_opts)
+        circs = transpile(
+            drag_cal.circuits(), inst_map=self.cals.default_inst_map, **transpile_opts
+        )
 
         x_cal = circs[5].calibrations["x"][((0,), ())]
 

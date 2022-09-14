@@ -14,13 +14,18 @@ Quantum Volume analysis class.
 """
 
 import math
-
 import warnings
 from typing import Optional
-import numpy as np
 
-from qiskit_experiments.framework import BaseAnalysis, AnalysisResultData, Options, FitVal
+import numpy as np
+import uncertainties
+from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.curve_analysis import plot_scatter, plot_errorbar
+from qiskit_experiments.framework import (
+    BaseAnalysis,
+    AnalysisResultData,
+    Options,
+)
 
 
 class QuantumVolumeAnalysis(BaseAnalysis):
@@ -51,14 +56,19 @@ class QuantumVolumeAnalysis(BaseAnalysis):
         return options
 
     def _run_analysis(self, experiment_data):
-        depth = experiment_data.experiment.num_qubits
         data = experiment_data.data()
         num_trials = len(data)
+        depth = None
         heavy_output_prob_exp = []
 
         for data_trial in data:
+            trial_depth = data_trial["metadata"]["depth"]
+            if depth is None:
+                depth = trial_depth
+            elif trial_depth != depth:
+                raise AnalysisError("QuantumVolume circuits do not all have the same depth.")
             heavy_output = self._calc_ideal_heavy_output(
-                data_trial["metadata"]["ideal_probabilities"], data_trial["metadata"]["depth"]
+                data_trial["metadata"]["ideal_probabilities"], trial_depth
             )
             heavy_output_prob_exp.append(
                 self._calc_exp_heavy_output_probability(data_trial, heavy_output)
@@ -107,7 +117,7 @@ class QuantumVolumeAnalysis(BaseAnalysis):
         Calculate the probability of measuring heavy output string in the data
 
         Args:
-            data (dict): the result of the circuit exectution
+            data (dict): the result of the circuit execution
             heavy_outputs (list): the bit strings of the heavy output from the ideal simulation
 
         Returns:
@@ -130,7 +140,7 @@ class QuantumVolumeAnalysis(BaseAnalysis):
             sigma (float): standard deviation
 
         Returns:
-            float: z_value in standard normal distibution.
+            float: z_value in standard normal distribution.
         """
 
         if sigma == 0:
@@ -151,7 +161,7 @@ class QuantumVolumeAnalysis(BaseAnalysis):
         where z = (X - mu)/sigma = (hmean - 2/3)/sigma
 
         Args:
-            z_value (float): z value in in standard normal distibution.
+            z_value (float): z value in in standard normal distribution.
 
         Returns:
             float: confidence level in decimal (not percentage).
@@ -206,7 +216,7 @@ class QuantumVolumeAnalysis(BaseAnalysis):
 
         hop_result = AnalysisResultData(
             "mean_HOP",
-            value=FitVal(mean_hop, sigma_hop),
+            value=uncertainties.ufloat(nominal_value=mean_hop, std_dev=sigma_hop),
             quality=quality,
             extra={
                 "HOPs": heavy_output_prob_exp,

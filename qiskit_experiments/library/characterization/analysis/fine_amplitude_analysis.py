@@ -12,10 +12,12 @@
 
 """Fine Amplitude calibration analysis."""
 
-from qiskit_experiments.curve_analysis import ErrorAmplificationAnalysis
+import lmfit
+
+import qiskit_experiments.curve_analysis as curve
 
 
-class FineAmplitudeAnalysis(ErrorAmplificationAnalysis):
+class FineAmplitudeAnalysis(curve.ErrorAmplificationAnalysis):
     r"""An analysis class for fine amplitude calibrations to define the fixed parameters.
 
     # section: note
@@ -27,6 +29,28 @@ class FineAmplitudeAnalysis(ErrorAmplificationAnalysis):
           :math:`\pi/2` if a square-root of X gate is added before the repeated gates.
     """
 
-    # The intended angle per gat of the gate being calibrated, e.g. pi for a pi-pulse.
+    # pylint: disable=super-init-not-called
+    def __init__(self):
 
-    __fixed_parameters__ = ["angle_per_gate", "phase_offset"]
+        # pylint: disable=non-parent-init-called
+        curve.CurveAnalysis.__init__(
+            self,
+            models=[
+                lmfit.models.ExpressionModel(
+                    expr="amp / 2 * (2 * x - 1) + base",
+                    name="spam cal.",
+                    data_sort_key={"series": "spam-cal"},
+                ),
+                lmfit.models.ExpressionModel(
+                    expr="amp / 2 * cos((d_theta + angle_per_gate) * x - phase_offset) + base",
+                    name="fine amp.",
+                    data_sort_key={"series": 1},
+                ),
+            ],
+        )
+
+    @classmethod
+    def _default_options(cls):
+        """Return the default analysis options."""
+        default_options = super()._default_options()
+        return default_options

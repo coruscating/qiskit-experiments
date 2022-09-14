@@ -18,12 +18,13 @@ import numpy as np
 from qiskit import transpile
 import qiskit.pulse as pulse
 from qiskit.circuit import Parameter
-from qiskit.test.mock import FakeArmonk
+from qiskit.providers.fake_provider import FakeArmonkV2
 
 from qiskit_experiments.calibration_management.basis_gate_library import FixedFrequencyTransmon
 from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.library import EFRoughXSXAmplitudeCal, RoughXSXAmplitudeCal
-from qiskit_experiments.test.mock_iq_backend import RabiBackend
+from qiskit_experiments.test.mock_iq_backend import MockIQBackend
+from qiskit_experiments.test.mock_iq_helpers import MockIQRabiHelper as RabiHelper
 
 
 class TestRoughAmpCal(QiskitExperimentsTestCase):
@@ -34,15 +35,15 @@ class TestRoughAmpCal(QiskitExperimentsTestCase):
         super().setUp()
         library = FixedFrequencyTransmon()
 
-        self.backend = FakeArmonk()
-        self.cals = Calibrations.from_backend(self.backend, library)
+        self.backend = FakeArmonkV2()
+        self.cals = Calibrations.from_backend(self.backend, libraries=[library])
 
     def test_circuits(self):
         """Test the quantum circuits."""
         test_amps = [-0.5, 0, 0.5]
         rabi = RoughXSXAmplitudeCal(0, self.cals, amplitudes=test_amps)
 
-        circs = transpile(rabi.circuits(), self.backend, inst_map=rabi.transpile_options.inst_map)
+        circs = transpile(rabi.circuits(), self.backend, inst_map=self.cals.default_inst_map)
 
         for circ, amp in zip(circs, test_amps):
             self.assertEqual(circ.count_ops()["Rabi"], 1)
@@ -60,7 +61,7 @@ class TestRoughAmpCal(QiskitExperimentsTestCase):
         self.assertTrue(np.allclose(self.cals.get_parameter_value("amp", 0, "sx"), 0.25))
 
         rabi_ef = RoughXSXAmplitudeCal(0, self.cals)
-        expdata = rabi_ef.run(RabiBackend(amplitude_to_angle=np.pi * 1.5))
+        expdata = rabi_ef.run(MockIQBackend(RabiHelper(amplitude_to_angle=np.pi * 1.5)))
         self.assertExperimentDone(expdata)
 
         tol = 0.002
@@ -85,8 +86,8 @@ class TestSpecializations(QiskitExperimentsTestCase):
 
         library = FixedFrequencyTransmon()
 
-        self.backend = FakeArmonk()
-        self.cals = Calibrations.from_backend(self.backend, library)
+        self.backend = FakeArmonkV2()
+        self.cals = Calibrations.from_backend(self.backend, libraries=[library])
 
         # Add some pulses on the 1-2 transition.
         d0 = pulse.DriveChannel(0)
@@ -109,9 +110,7 @@ class TestSpecializations(QiskitExperimentsTestCase):
         test_amps = [-0.5, 0, 0.5]
         rabi_ef = EFRoughXSXAmplitudeCal(0, self.cals, amplitudes=test_amps)
 
-        circs = transpile(
-            rabi_ef.circuits(), self.backend, inst_map=rabi_ef.transpile_options.inst_map
-        )
+        circs = transpile(rabi_ef.circuits(), self.backend, inst_map=self.cals.default_inst_map)
 
         for circ, amp in zip(circs, test_amps):
 
@@ -136,7 +135,7 @@ class TestSpecializations(QiskitExperimentsTestCase):
         self.assertTrue(np.allclose(self.cals.get_parameter_value("amp", 0, "sx12"), 0.2))
 
         rabi_ef = EFRoughXSXAmplitudeCal(0, self.cals)
-        expdata = rabi_ef.run(RabiBackend(amplitude_to_angle=np.pi * 1.5))
+        expdata = rabi_ef.run(MockIQBackend(RabiHelper(amplitude_to_angle=np.pi * 1.5)))
         self.assertExperimentDone(expdata)
 
         tol = 0.002

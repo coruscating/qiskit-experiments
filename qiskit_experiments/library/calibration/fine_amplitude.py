@@ -12,10 +12,10 @@
 
 """Fine amplitude calibration experiment."""
 
-from typing import Optional
+from typing import Dict, Optional
 import numpy as np
 
-from qiskit.circuit import Gate
+from qiskit.circuit import Gate, QuantumCircuit
 from qiskit.providers.backend import Backend
 
 from qiskit_experiments.calibration_management import (
@@ -63,15 +63,13 @@ class FineAmplitudeCal(BaseCalibrationExperiment, FineAmplitude):
         """
         super().__init__(
             calibrations,
-            qubit,
+            [qubit],
             Gate(name=schedule_name, num_qubits=1, params=[]),
             schedule_name=schedule_name,
             backend=backend,
             cal_parameter_name=cal_parameter_name,
             auto_update=auto_update,
         )
-
-        self.set_transpile_options(inst_map=calibrations.default_inst_map)
 
     @classmethod
     def _default_experiment_options(cls):
@@ -84,7 +82,7 @@ class FineAmplitudeCal(BaseCalibrationExperiment, FineAmplitude):
         options.target_angle = np.pi
         return options
 
-    def _add_cal_metadata(self, experiment_data: ExperimentData):
+    def _metadata(self) -> Dict[str, any]:
         """Add metadata to the experiment data making it more self contained.
 
         The following keys are added to each experiment's metadata:
@@ -95,19 +93,16 @@ class FineAmplitudeCal(BaseCalibrationExperiment, FineAmplitude):
             target_angle: The target angle of the gate.
             cal_group: The calibration group to which the parameter belongs.
         """
-
-        param_val = self._cals.get_parameter_value(
+        metadata = super()._metadata()
+        metadata["target_angle"] = self.experiment_options.target_angle
+        metadata["cal_param_value"] = self._cals.get_parameter_value(
             self._param_name,
             self.physical_qubits,
             self._sched_name,
             group=self.experiment_options.group,
         )
 
-        experiment_data.metadata["cal_param_value"] = param_val
-        experiment_data.metadata["cal_param_name"] = self._param_name
-        experiment_data.metadata["cal_schedule"] = self._sched_name
-        experiment_data.metadata["target_angle"] = self.experiment_options.target_angle
-        experiment_data.metadata["cal_group"] = self.experiment_options.group
+        return metadata
 
     def update_calibrations(self, experiment_data: ExperimentData):
         r"""Update the amplitude of the pulse in the calibrations.
@@ -171,27 +166,11 @@ class FineXAmplitudeCal(FineAmplitudeCal):
             auto_update=auto_update,
         )
         self.analysis.set_options(
-            angle_per_gate=np.pi,
-            phase_offset=np.pi / 2,
-            amp=1,
+            fixed_parameters={
+                "angle_per_gate": np.pi,
+                "phase_offset": np.pi / 2,
+            }
         )
-
-    @classmethod
-    def _default_experiment_options(cls) -> Options:
-        r"""Default values for the fine amplitude experiment.
-
-        Experiment Options:
-            add_sx (bool): This option is True by default when calibrating gates with a target
-                angle per gate of :math:`\pi` as this increases the sensitivity of the
-                experiment.
-            add_xp_circuit (bool): This option is True by default when calibrating gates with
-                a target angle per gate of :math:`\pi`.
-        """
-        options = super()._default_experiment_options()
-        options.add_sx = True
-        options.add_xp_circuit = True
-
-        return options
 
     @classmethod
     def _default_transpile_options(cls):
@@ -206,6 +185,12 @@ class FineXAmplitudeCal(FineAmplitudeCal):
         options.basis_gates = ["x", "sx"]
 
         return options
+
+    def _pre_circuit(self, num_clbits: int) -> QuantumCircuit:
+        """The preparation circuit is an sx gate to move to the equator of the Bloch sphere."""
+        circuit = QuantumCircuit(self.num_qubits, num_clbits)
+        circuit.sx(0)
+        return circuit
 
 
 class FineSXAmplitudeCal(FineAmplitudeCal):
@@ -233,8 +218,10 @@ class FineSXAmplitudeCal(FineAmplitudeCal):
             auto_update=auto_update,
         )
         self.analysis.set_options(
-            angle_per_gate=np.pi / 2,
-            phase_offset=np.pi,
+            fixed_parameters={
+                "angle_per_gate": np.pi / 2,
+                "phase_offset": np.pi,
+            }
         )
 
     @classmethod
@@ -254,8 +241,7 @@ class FineSXAmplitudeCal(FineAmplitudeCal):
             target_angle (float): The target angle per gate.
         """
         options = super()._default_experiment_options()
-        options.add_sx = False
-        options.add_xp_circuit = False
+        options.add_cal_circuits = False
         options.repetitions = [0, 1, 2, 3, 5, 7, 9, 11, 13, 15, 17, 21, 23, 25]
         options.target_angle = np.pi / 2
         return options

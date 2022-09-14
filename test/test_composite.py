@@ -17,18 +17,25 @@ import uuid
 
 from test.fake_experiment import FakeExperiment, FakeAnalysis
 from test.base import QiskitExperimentsTestCase
+from ddt import ddt, data
 
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, Aer
+from qiskit.providers.aer import noise
 from qiskit.result import Result
 
+from qiskit_ibm_experiment import IBMExperimentService
+
 from qiskit_experiments.test.utils import FakeJob
-from qiskit_experiments.test import FakeService
 from qiskit_experiments.test.fake_backend import FakeBackend
 from qiskit_experiments.framework import (
     ParallelExperiment,
     Options,
     ExperimentData,
     BatchExperiment,
+    BaseExperiment,
+    BaseAnalysis,
+    AnalysisResultData,
+    CompositeAnalysis,
 )
 
 # pylint: disable=missing-raises-doc
@@ -54,18 +61,61 @@ class TestComposite(QiskitExperimentsTestCase):
 
         par_exp = ParallelExperiment([exp0, exp2])
 
-        with self.assertWarnsRegex(
-            Warning,
-            "Sub-experiment run and transpile options"
-            " are overridden by composite experiment options.",
-        ):
-            self.assertEqual(par_exp.experiment_options, Options())
-            self.assertEqual(par_exp.run_options, Options(meas_level=2))
-            self.assertEqual(par_exp.transpile_options, Options(optimization_level=0))
-            self.assertEqual(par_exp.analysis.options, Options())
+        self.assertEqual(par_exp.experiment_options, par_exp._default_experiment_options())
+        self.assertEqual(par_exp.run_options, Options(meas_level=2))
+        self.assertEqual(par_exp.transpile_options, Options(optimization_level=0))
+        self.assertEqual(par_exp.analysis.options, par_exp.analysis._default_options())
 
+        with self.assertWarns(UserWarning):
             expdata = par_exp.run(FakeBackend())
-            self.assertExperimentDone(expdata)
+        self.assertExperimentDone(expdata)
+
+    def test_flatten_results_nested(self):
+        """Test combining results."""
+        exp0 = FakeExperiment([0])
+        exp1 = FakeExperiment([1])
+        exp2 = FakeExperiment([2])
+        exp3 = FakeExperiment([3])
+        comp_exp = ParallelExperiment(
+            [
+                BatchExperiment(2 * [ParallelExperiment([exp0, exp1])]),
+                BatchExperiment(3 * [ParallelExperiment([exp2, exp3])]),
+            ],
+            flatten_results=True,
+        )
+        expdata = comp_exp.run(FakeBackend())
+        self.assertExperimentDone(expdata)
+        # Check no child data was saved
+        self.assertEqual(len(expdata.child_data()), 0)
+        # Check right number of analysis results is returned
+        self.assertEqual(len(expdata.analysis_results()), 30)
+
+    def test_flatten_results_partial(self):
+        """Test flattening results."""
+        exp0 = FakeExperiment([0])
+        exp1 = FakeExperiment([1])
+        exp2 = FakeExperiment([2])
+        exp3 = FakeExperiment([3])
+        comp_exp = BatchExperiment(
+            [
+                ParallelExperiment([exp0, exp1, exp2], flatten_results=True),
+                ParallelExperiment([exp2, exp3], flatten_results=True),
+            ],
+        )
+        expdata = comp_exp.run(FakeBackend())
+        self.assertExperimentDone(expdata)
+        # Check out experiment wasn't flattened
+        self.assertEqual(len(expdata.child_data()), 2)
+        self.assertEqual(len(expdata.analysis_results()), 0)
+
+        # check inner experiments were flattened
+        child0 = expdata.child_data(0)
+        child1 = expdata.child_data(1)
+        self.assertEqual(len(child0.child_data()), 0)
+        self.assertEqual(len(child1.child_data()), 0)
+        # Check right number of analysis results is returned
+        self.assertEqual(len(child0.analysis_results()), 9)
+        self.assertEqual(len(child1.analysis_results()), 6)
 
     def test_experiment_config(self):
         """Test converting to and from config works"""
@@ -92,6 +142,7 @@ class TestComposite(QiskitExperimentsTestCase):
         self.assertRoundTripSerializable(exp, self.json_equiv)
 
 
+@ddt
 class TestCompositeExperimentData(QiskitExperimentsTestCase):
     """
     Test operations on objects of composite ExperimentData
@@ -101,7 +152,7 @@ class TestCompositeExperimentData(QiskitExperimentsTestCase):
         super().setUp()
 
         self.backend = FakeBackend()
-        self.share_level = "hey"
+        self.share_level = "public"
 
         exp1 = FakeExperiment([0, 2])
         exp2 = FakeExperiment([1, 3])
@@ -131,7 +182,7 @@ class TestCompositeExperimentData(QiskitExperimentsTestCase):
         """
         Recursively traverse the tree and check equality of expdata1 and expdata2
         """
-        self.assertEqual(expdata1.backend.name(), expdata2.backend.name())
+        self.assertEqual(expdata1.backend_name, expdata2.backend_name)
         self.assertEqual(expdata1.tags, expdata2.tags)
         self.assertEqual(expdata1.experiment_type, expdata2.experiment_type)
         self.assertEqual(expdata1.share_level, expdata2.share_level)
@@ -163,7 +214,7 @@ class TestCompositeExperimentData(QiskitExperimentsTestCase):
         Verify that saving and loading restores the original composite experiment data object
         """
 
-        self.rootdata.service = FakeService()
+        self.rootdata.service = IBMExperimentService(local=True, local_save=False)
         self.rootdata.save()
         loaded_data = ExperimentData.load(self.rootdata.experiment_id, self.rootdata.service)
         self.check_if_equal(loaded_data, self.rootdata, is_a_copy=False)
@@ -172,7 +223,7 @@ class TestCompositeExperimentData(QiskitExperimentsTestCase):
         """
         Verify that saving metadata and loading restores the original composite experiment data object
         """
-        self.rootdata.service = FakeService()
+        self.rootdata.service = IBMExperimentService(local=True, local_save=False)
         self.rootdata.save_metadata()
         loaded_data = ExperimentData.load(self.rootdata.experiment_id, self.rootdata.service)
 
@@ -186,6 +237,35 @@ class TestCompositeExperimentData(QiskitExperimentsTestCase):
         self.check_if_equal(new_instance, self.rootdata, is_a_copy=True)
         self.check_attributes(new_instance)
         self.assertEqual(new_instance.parent_id, None)
+
+    def test_composite_copy_analysis_ref(self):
+        """Test copy of composite experiment preserves component analysis refs"""
+
+        class Analysis(FakeAnalysis):
+            """Fake analysis class with options"""
+
+            @classmethod
+            def _default_options(cls):
+                opts = super()._default_options()
+                opts.option1 = None
+                opts.option2 = None
+                return opts
+
+        exp1 = FakeExperiment([0])
+        exp1.analysis = Analysis()
+        exp2 = FakeExperiment([1])
+        exp2.analysis = Analysis()
+
+        # Generate a copy
+        par_exp = ParallelExperiment([exp1, exp2]).copy()
+        comp_exp0 = par_exp.component_experiment(0)
+        comp_exp1 = par_exp.component_experiment(1)
+        comp_an0 = par_exp.analysis.component_analysis(0)
+        comp_an1 = par_exp.analysis.component_analysis(1)
+
+        # Check reference of analysis is preserved
+        self.assertTrue(comp_exp0.analysis is comp_an0)
+        self.assertTrue(comp_exp1.analysis is comp_an1)
 
     def test_nested_composite(self):
         """
@@ -361,7 +441,7 @@ class TestCompositeExperimentData(QiskitExperimentsTestCase):
 
         class Backend(FakeBackend):
             """
-            Bacekend to be used in test_composite_subexp_data
+            Backend to be used in test_composite_subexp_data
             """
 
             def run(self, run_input, **options):
@@ -496,3 +576,237 @@ class TestCompositeExperimentData(QiskitExperimentsTestCase):
         # Check this is reflected in parallel experiment
         self.assertEqual(par_exp.analysis.component_analysis(0).options.option1, opt1_val)
         self.assertEqual(par_exp.analysis.component_analysis(1).options.option2, opt2_val)
+
+    @data(
+        ["0x0", "0x2", "0x3", "0x0", "0x0", "0x1", "0x3", "0x0", "0x2", "0x3"],
+        ["00", "10", "11", "00", "00", "01", "11", "00", "10", "11"],
+    )
+    def test_composite_count_memory_marginalization(self, memory):
+        """Test the marginalization of level two memory."""
+        test_data = ExperimentData()
+
+        # Simplified experimental data
+        datum = {
+            "counts": {"0 0": 4, "0 1": 1, "1 0": 2, "1 1": 3},
+            "memory": memory,
+            "metadata": {
+                "experiment_type": "ParallelExperiment",
+                "composite_index": [0, 1],
+                "composite_metadata": [
+                    {"experiment_type": "FineXAmplitude", "qubits": [0]},
+                    {"experiment_type": "FineXAmplitude", "qubits": [1]},
+                ],
+                "composite_qubits": [[0], [1]],
+                "composite_clbits": [[0], [1]],
+            },
+            "shots": 10,
+            "meas_level": 2,
+        }
+
+        test_data.add_data(datum)
+
+        sub_data = CompositeAnalysis([])._marginalized_component_data(test_data.data())
+        expected = [
+            [
+                {
+                    "metadata": {"experiment_type": "FineXAmplitude", "qubits": [0]},
+                    "counts": {"0": 6, "1": 4},
+                    "memory": ["0", "0", "1", "0", "0", "1", "1", "0", "0", "1"],
+                }
+            ],
+            [
+                {
+                    "metadata": {"experiment_type": "FineXAmplitude", "qubits": [1]},
+                    "counts": {"0": 5, "1": 5},
+                    "memory": ["0", "1", "1", "0", "0", "0", "1", "0", "1", "1"],
+                }
+            ],
+        ]
+
+        self.assertListEqual(sub_data, expected)
+
+    def test_composite_single_kerneled_memory_marginalization(self):
+        """Test the marginalization of level 1 data."""
+        test_data = ExperimentData()
+
+        datum = {
+            "memory": [
+                # qubit 0,   qubit 1,    qubit 2
+                [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]],  # shot 1
+                [[0.1, 0.1], [1.1, 1.1], [2.1, 2.1]],  # shot 2
+                [[0.2, 0.2], [1.2, 1.2], [2.2, 2.2]],  # shot 3
+                [[0.3, 0.3], [1.3, 1.3], [2.3, 2.3]],  # shot 4
+                [[0.4, 0.4], [1.4, 1.4], [2.4, 2.4]],  # shot 5
+            ],
+            "metadata": {
+                "experiment_type": "ParallelExperiment",
+                "composite_index": [0, 1, 2],
+                "composite_metadata": [
+                    {"experiment_type": "FineXAmplitude", "qubits": [0]},
+                    {"experiment_type": "FineXAmplitude", "qubits": [1]},
+                    {"experiment_type": "FineXAmplitude", "qubits": [2]},
+                ],
+                "composite_qubits": [[0], [1], [2]],
+                "composite_clbits": [[0], [1], [2]],
+            },
+            "shots": 5,
+            "meas_level": 1,
+        }
+
+        test_data.add_data(datum)
+
+        all_sub_data = CompositeAnalysis([])._marginalized_component_data(test_data.data())
+        for idx, sub_data in enumerate(all_sub_data):
+            expected = {
+                "metadata": {"experiment_type": "FineXAmplitude", "qubits": [idx]},
+                "memory": [
+                    [[idx + 0.0, idx + 0.0]],
+                    [[idx + 0.1, idx + 0.1]],
+                    [[idx + 0.2, idx + 0.2]],
+                    [[idx + 0.3, idx + 0.3]],
+                    [[idx + 0.4, idx + 0.4]],
+                ],
+            }
+
+            self.assertEqual(expected, sub_data[0])
+
+    def test_composite_avg_kerneled_memory_marginalization(self):
+        """The the marginalization of level 1 averaged data."""
+        test_data = ExperimentData()
+
+        datum = {
+            "memory": [
+                [0.0, 0.1],  # qubit 0
+                [1.0, 1.1],  # qubit 1
+                [2.0, 2.1],  # qubit 2
+            ],
+            "metadata": {
+                "experiment_type": "ParallelExperiment",
+                "composite_index": [0, 1, 2],
+                "composite_metadata": [
+                    {"experiment_type": "FineXAmplitude", "qubits": [0]},
+                    {"experiment_type": "FineXAmplitude", "qubits": [1]},
+                    {"experiment_type": "FineXAmplitude", "qubits": [2]},
+                ],
+                "composite_qubits": [[0], [1], [2]],
+                "composite_clbits": [[0], [1], [2]],
+            },
+            "shots": 5,
+            "meas_level": 1,
+        }
+
+        test_data.add_data(datum)
+
+        all_sub_data = CompositeAnalysis([])._marginalized_component_data(test_data.data())
+        for idx, sub_data in enumerate(all_sub_data):
+            expected = {
+                "metadata": {"experiment_type": "FineXAmplitude", "qubits": [idx]},
+                "memory": [[idx + 0.0, idx + 0.1]],
+            }
+
+            self.assertEqual(expected, sub_data[0])
+
+    def test_composite_properties_setting(self):
+        """Test whether DB-critical properties are being set in the
+        subexperiment data"""
+        exp1 = FakeExperiment([0])
+        exp1.analysis = FakeAnalysis()
+        exp2 = FakeExperiment([1])
+        exp2.analysis = FakeAnalysis()
+        batch_exp = BatchExperiment([exp1, exp2], flatten_results=True)
+        exp_data = batch_exp.run(backend=self.backend).block_for_results()
+        # when flattening, individual analysis result share exp id
+        for result in exp_data.analysis_results():
+            self.assertEqual(result.experiment_id, exp_data.experiment_id)
+        batch_exp = BatchExperiment([exp1, exp2], flatten_results=False)
+        exp_data = batch_exp.run(backend=self.backend).block_for_results()
+        self.assertEqual(exp_data.child_data(0).experiment_type, exp1.experiment_type)
+        self.assertEqual(exp_data.child_data(1).experiment_type, exp2.experiment_type)
+
+
+class TestBatchTranspileOptions(QiskitExperimentsTestCase):
+    """
+    For batch experiments, circuits are transpiled with the transpile options of the
+    sub-experiments
+    """
+
+    class SimpleExperiment(BaseExperiment):
+        """
+        An experiment that creates a circuit of four qubits.
+        Qubits 1 and 2 are inactive.
+        Qubits 0 and 3 form a Bell state.
+        The purpose: we will test with varying coupling maps, spanning from a coupling map that
+        directly connects qubits 0 and 3 (hence qubits 1 and 2 remains inactive also in the
+        transpiled circuit) to a coupling map with distance 3 between qubits 0 and 3.
+        """
+
+        def __init__(self, qubits, backend=None):
+            super().__init__(
+                qubits, analysis=TestBatchTranspileOptions.SimpleAnalysis(), backend=backend
+            )
+
+        def circuits(self):
+            circ = QuantumCircuit(4, 4)
+            circ.h(0)
+            circ.cx(0, 3)
+            circ.barrier()
+            circ.measure(range(4), range(4))
+            return [circ]
+
+    class SimpleAnalysis(BaseAnalysis):
+        """
+        The number of non-zero counts is equal to
+        2^(distance between qubits 0 and 3 in the transpiled circuit + 1)
+        """
+
+        def _run_analysis(self, experiment_data):
+            analysis_results = [
+                AnalysisResultData(
+                    name="non-zero counts", value=len(experiment_data.data(0)["counts"])
+                ),
+            ]
+
+            return analysis_results, []
+
+    def setUp(self):
+        super().setUp()
+
+        exp1 = self.SimpleExperiment(range(4))
+        exp2 = self.SimpleExperiment(range(4))
+        exp3 = self.SimpleExperiment(range(4))
+        batch1 = BatchExperiment([exp2, exp3])
+        self.batch2 = BatchExperiment([exp1, batch1])
+
+        exp1.set_transpile_options(coupling_map=[[0, 1], [1, 3], [3, 2]])
+        exp2.set_transpile_options(coupling_map=[[0, 1], [1, 2], [2, 3]])
+
+        # exp3 circuit: two active qubits and six instructions: hadamard, cnot, four measurements.
+        # exp1 circuit: three active qubits (0, 1, 3) and seven instructions: hadamard,
+        #               two 2Q gates, four measurements.
+        # exp2 circuit: four active qubits and eight instructions.
+
+    def test_batch_transpiled_circuits(self):
+        """
+        For batch experiments, circuits are transpiled with the transpile options of the
+        sub-experiments
+        """
+        circs = self.batch2._transpiled_circuits()
+        numbers_of_gates = [len(circ.data) for circ in circs]
+        self.assertEqual(set(numbers_of_gates), set([7, 8, 9]))
+
+    def test_batch_transpile_options_integrated(self):
+        """
+        The goal is to verify that not only `_transpiled_circuits` works well
+        (`test_batch_transpiled_circuits` takes care of it) but that it's correctly called within
+        the entire flow of `BaseExperiment.run`.
+        """
+        backend = Aer.get_backend("aer_simulator")
+        noise_model = noise.NoiseModel()
+        noise_model.add_all_qubit_quantum_error(noise.depolarizing_error(0.5, 2), ["cx", "swap"])
+
+        expdata = self.batch2.run(backend, noise_model=noise_model, shots=1000)
+        expdata.block_for_results()
+
+        self.assertEqual(expdata.child_data(0).analysis_results(0).value, 8)
+        self.assertEqual(expdata.child_data(1).child_data(0).analysis_results(0).value, 16)
+        self.assertEqual(expdata.child_data(1).child_data(1).analysis_results(0).value, 4)

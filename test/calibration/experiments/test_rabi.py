@@ -28,8 +28,9 @@ from qiskit_experiments.library import Rabi, EFRabi
 from qiskit_experiments.curve_analysis.standard_analysis.oscillation import OscillationAnalysis
 from qiskit_experiments.data_processing.data_processor import DataProcessor
 from qiskit_experiments.data_processing.nodes import Probability
-from qiskit_experiments.test.mock_iq_backend import RabiBackend
-from qiskit_experiments.database_service.db_experiment_data import ExperimentStatus
+from qiskit_experiments.test.mock_iq_backend import MockIQBackend
+from qiskit_experiments.test.mock_iq_helpers import MockIQRabiHelper as RabiHelper
+from qiskit_experiments.framework.experiment_data import ExperimentStatus
 
 
 class TestRabiEndToEnd(QiskitExperimentsTestCase):
@@ -46,11 +47,13 @@ class TestRabiEndToEnd(QiskitExperimentsTestCase):
 
         self.sched = sched
 
+    # pylint: disable=no-member
     def test_rabi_end_to_end(self):
         """Test the Rabi experiment end to end."""
 
         test_tol = 0.01
-        backend = RabiBackend()
+        rabi_experiment_helper = RabiHelper()
+        backend = MockIQBackend(rabi_experiment_helper)
 
         rabi = Rabi(self.qubit, self.sched)
         rabi.set_experiment_options(amplitudes=np.linspace(-0.95, 0.95, 21))
@@ -59,38 +62,42 @@ class TestRabiEndToEnd(QiskitExperimentsTestCase):
         result = expdata.analysis_results(0)
 
         self.assertEqual(result.quality, "good")
-        self.assertTrue(abs(result.value.value[1] - backend.rabi_rate) < test_tol)
+        # The comparison is made against the object that exists in the backend for accurate testing
+        self.assertAlmostEqual(
+            result.value.params["freq"], backend.experiment_helper.rabi_rate(), delta=test_tol
+        )
 
-        backend = RabiBackend(amplitude_to_angle=np.pi / 2)
+        # updating 'amplitude_to_angle' parameter in the experiment helper
+        rabi_experiment_helper.amplitude_to_angle = np.pi / 2
 
-        rabi = Rabi(self.qubit, self.sched)
-        rabi.set_experiment_options(amplitudes=np.linspace(-0.95, 0.95, 21))
         expdata = rabi.run(backend)
         self.assertExperimentDone(expdata)
         result = expdata.analysis_results(0)
         self.assertEqual(result.quality, "good")
-        self.assertTrue(abs(result.value.value[1] - backend.rabi_rate) < test_tol)
+        self.assertAlmostEqual(
+            result.value.params["freq"], backend.experiment_helper.rabi_rate(), delta=test_tol
+        )
 
-        backend = RabiBackend(amplitude_to_angle=2.5 * np.pi)
-
-        rabi = Rabi(self.qubit, self.sched)
+        # updating 'amplitude_to_angle' parameter in the experiment helper and experiment options
+        rabi_experiment_helper.amplitude_to_angle = 2.5 * np.pi
         rabi.set_experiment_options(amplitudes=np.linspace(-0.95, 0.95, 101))
+
         expdata = rabi.run(backend)
         self.assertExperimentDone(expdata)
         result = expdata.analysis_results(0)
         self.assertEqual(result.quality, "good")
-        self.assertTrue(abs(result.value.value[1] - backend.rabi_rate) < test_tol)
+        self.assertAlmostEqual(
+            result.value.params["freq"], backend.experiment_helper.rabi_rate(), delta=test_tol
+        )
 
     def test_wrong_processor(self):
         """Test that we can override the data processing by giving a faulty data processor."""
-
-        backend = RabiBackend()
-
+        backend = MockIQBackend(RabiHelper())
         rabi = Rabi(self.qubit, self.sched)
-
         fail_key = "fail_key"
 
         rabi.analysis.set_options(data_processor=DataProcessor(fail_key, []))
+        # pylint: disable=no-member
         rabi.set_run_options(shots=2)
         data = rabi.run(backend)
         result = data.analysis_results()
@@ -129,11 +136,12 @@ class TestEFRabi(QiskitExperimentsTestCase):
 
         self.sched = sched
 
+    # pylint: disable=no-member
     def test_ef_rabi_end_to_end(self):
         """Test the EFRabi experiment end to end."""
 
         test_tol = 0.01
-        backend = RabiBackend()
+        backend = MockIQBackend(RabiHelper())
 
         # Note that the backend is not sophisticated enough to simulate an e-f
         # transition so we run the test with a tiny frequency shift, still driving the e-g transition.
@@ -144,7 +152,7 @@ class TestEFRabi(QiskitExperimentsTestCase):
         result = expdata.analysis_results(1)
 
         self.assertEqual(result.quality, "good")
-        self.assertTrue(abs(result.value.value - backend.rabi_rate) < test_tol)
+        self.assertTrue(abs(result.value.n - backend.experiment_helper.rabi_rate()) < test_tol)
 
     def test_ef_rabi_circuit(self):
         """Test the EFRabi experiment end to end."""
@@ -196,10 +204,9 @@ class TestRabiCircuits(QiskitExperimentsTestCase):
 
     def test_default_schedule(self):
         """Test the default schedule."""
-
         rabi = Rabi(2, self.sched)
         rabi.set_experiment_options(amplitudes=[0.5])
-        rabi.backend = RabiBackend()
+        rabi.backend = MockIQBackend(RabiHelper())
         circs = rabi.circuits()
 
         with pulse.build() as expected:
@@ -218,7 +225,7 @@ class TestRabiCircuits(QiskitExperimentsTestCase):
 
         rabi = Rabi(2, self.sched)
         rabi.set_experiment_options(schedule=my_schedule, amplitudes=[0.5])
-        rabi.backend = RabiBackend()
+        rabi.backend = MockIQBackend(RabiHelper())
         circs = rabi.circuits()
 
         assigned_sched = my_schedule.assign_parameters({amp: 0.5}, inplace=False)
@@ -278,9 +285,9 @@ class TestRabiAnalysis(QiskitExperimentsTestCase):
         experiment_data = OscillationAnalysis().run(
             experiment_data, data_processor=data_processor, plot=False
         )
-        result = experiment_data.analysis_results()
-        self.assertEqual(result[0].quality, "good")
-        self.assertTrue(abs(result[0].value.value[1] - expected_rate) < test_tol)
+        result = experiment_data.analysis_results(0)
+        self.assertEqual(result.quality, "good")
+        self.assertAlmostEqual(result.value.params["freq"], expected_rate, delta=test_tol)
 
     def test_bad_analysis(self):
         """Test the Rabi analysis."""

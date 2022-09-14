@@ -12,7 +12,7 @@
 
 """Fine frequency calibration experiment."""
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 import numpy as np
 
 from qiskit.providers.backend import Backend
@@ -76,10 +76,8 @@ class FineFrequencyCal(BaseCalibrationExperiment, FineFrequency):
             auto_update=auto_update,
         )
 
-        self.set_transpile_options(inst_map=calibrations.default_inst_map)
-
         if self.backend is not None:
-            self.set_experiment_options(dt=getattr(self.backend.configuration(), "dt", None))
+            self.set_experiment_options(dt=self._backend_data.dt)
 
     @classmethod
     def _default_experiment_options(cls):
@@ -92,7 +90,7 @@ class FineFrequencyCal(BaseCalibrationExperiment, FineFrequency):
         options.dt = None
         return options
 
-    def _add_cal_metadata(self, experiment_data: ExperimentData):
+    def _metadata(self) -> Dict[str, any]:
         """Add metadata to the experiment data making it more self contained.
 
         The following keys are added to the experiment's metadata:
@@ -103,22 +101,16 @@ class FineFrequencyCal(BaseCalibrationExperiment, FineFrequency):
             delay_duration: The duration of the first delay.
             dt: The number of ``dt`` units of the delay.
         """
-
-        param_val = self._cals.get_parameter_value(
+        metadata = super()._metadata()
+        metadata["delay_duration"] = self.experiment_options.delay_duration
+        metadata["dt"] = self.experiment_options.dt
+        metadata["cal_param_value"] = self._cals.get_parameter_value(
             self._param_name,
             self.physical_qubits,
             group=self.experiment_options.group,
         )
 
-        experiment_data.metadata.update(
-            {
-                "cal_param_value": param_val,
-                "cal_param_name": self._param_name,
-                "cal_group": self.experiment_options.group,
-                "delay_duration": self.experiment_options.delay_duration,
-                "dt": self.experiment_options.dt,
-            }
-        )
+        return metadata
 
     def update_calibrations(self, experiment_data: ExperimentData):
         r"""Update the qubit frequency based on the measured angle deviation.
@@ -140,7 +132,7 @@ class FineFrequencyCal(BaseCalibrationExperiment, FineFrequency):
         dt = experiment_data.metadata["dt"]
 
         d_theta = BaseUpdater.get_value(experiment_data, "d_theta", result_index)
-        new_freq = prev_freq - d_theta / (2 * np.pi * tau * dt)
+        new_freq = prev_freq + d_theta / (2 * np.pi * tau * dt)
 
         BaseUpdater.add_parameter_value(
             self._cals, experiment_data, new_freq, self._param_name, self._sched_name, group

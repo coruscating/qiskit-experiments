@@ -22,11 +22,11 @@ from qiskit.providers.backend import Backend
 from qiskit.pulse import ScheduleBlock
 
 from qiskit_experiments.framework import BaseExperiment, Options
-from qiskit_experiments.exceptions import CalibrationError
+from qiskit_experiments.framework.restless_mixin import RestlessMixin
 from qiskit_experiments.library.characterization.analysis import DragCalAnalysis
 
 
-class RoughDrag(BaseExperiment):
+class RoughDrag(BaseExperiment, RestlessMixin):
     r"""An experiment that scans the DRAG parameter to find the optimal value.
 
     # section: overview
@@ -70,7 +70,7 @@ class RoughDrag(BaseExperiment):
         .. ref_arxiv:: 3 1509.05470
 
     # section: tutorial
-        :doc:`/tutorials/calibrating_armonk`
+        :doc:`/tutorials/calibrating_real_device`
 
     """
 
@@ -91,35 +91,6 @@ class RoughDrag(BaseExperiment):
         options.betas = np.linspace(-5, 5, 51)
 
         return options
-
-    @classmethod
-    def _default_analysis_options(cls) -> Options:
-        """Default analysis options."""
-        options = Options()
-        options.normalization = True
-
-        return options
-
-    # pylint: disable=arguments-differ
-    def set_experiment_options(self, reps: Optional[List] = None, **fields):
-        """Raise if reps has a length different from three.
-
-        Raises:
-            CalibrationError: if the number of repetitions is different from three.
-        """
-
-        if reps is None:
-            reps = [1, 3, 5]
-        else:
-            reps = sorted(reps)  # ensure reps 1 is the lowest frequency.
-
-        if len(reps) != 3:
-            raise CalibrationError(
-                f"{self.__class__.__name__} must use exactly three repetition numbers. "
-                f"Received {reps} with length {len(reps)} != 3."
-            )
-
-        super().set_experiment_options(reps=reps, **fields)
 
     def __init__(
         self,
@@ -142,8 +113,8 @@ class RoughDrag(BaseExperiment):
             QiskitError: if the schedule does not have a free parameter.
         """
 
+        # Create analysis in finalize to reflect user change to reps
         super().__init__([qubit], analysis=DragCalAnalysis(), backend=backend)
-        self.analysis.set_options(**self._default_analysis_options.__dict__)
 
         if betas is not None:
             self.set_experiment_options(betas=betas)
@@ -178,16 +149,8 @@ class RoughDrag(BaseExperiment):
         # would results in QObj errors.
         drag_gate = Gate(name="Drag(" + schedule.name + ")", num_qubits=1, params=[beta])
 
-        reps = self.experiment_options.reps
-        if len(reps) != 3:
-            raise QiskitError(
-                f"{self.__class__.__name__} uses exactly three repetitions. "
-                f"Received {reps} with length {len(reps)} != 3."
-            )
-
         circuits = []
-
-        for idx, rep in enumerate(reps):
+        for rep in self.experiment_options.reps:
             circuit = self._pre_circuit()
             for _ in range(rep):
                 circuit.append(drag_gate, (0,))
@@ -210,9 +173,23 @@ class RoughDrag(BaseExperiment):
                     "experiment_type": self._type,
                     "qubits": self.physical_qubits,
                     "xval": beta_val,
-                    "series": idx,
+                    "nrep": rep,
                 }
 
                 circuits.append(assigned_circuit)
 
         return circuits
+
+    def _finalize(self):
+        if isinstance(self.analysis, DragCalAnalysis):
+            # Set reps to analysis option to create proper model
+            self.analysis.set_options(reps=self.experiment_options.reps)
+
+    def _metadata(self):
+        metadata = super()._metadata()
+        # Store measurement level and meas return if they have been
+        # set for the experiment
+        for run_opt in ["meas_level", "meas_return"]:
+            if hasattr(self.run_options, run_opt):
+                metadata[run_opt] = getattr(self.run_options, run_opt)
+        return metadata

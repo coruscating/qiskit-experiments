@@ -37,7 +37,7 @@ try:
 except ImportError:
     HAS_IBMQ = False
 
-from .exceptions import DbExperimentEntryNotFound, DbExperimentEntryExists, DbExperimentDataError
+from .exceptions import ExperimentEntryNotFound, ExperimentEntryExists, ExperimentDataError
 from ..version import __version__ as experiments_version
 
 LOG = logging.getLogger(__name__)
@@ -128,11 +128,11 @@ def save_data(
         A tuple of whether the data was saved and the function return value.
 
     Raises:
-        DbExperimentDataError: If unable to determine whether the entry exists.
+        ExperimentDataError: If unable to determine whether the entry exists.
     """
     attempts = 0
-    no_entry_exception = [DbExperimentEntryNotFound]
-    dup_entry_exception = [DbExperimentEntryExists]
+    no_entry_exception = [ExperimentEntryNotFound]
+    dup_entry_exception = [ExperimentEntryExists]
     if HAS_IBMQ:
         no_entry_exception.append(IBMExperimentEntryNotFound)
         dup_entry_exception.append(IBMExperimentEntryExists)
@@ -158,7 +158,7 @@ def save_data(
                     return True, update_func(**kwargs)
                 except tuple(no_entry_exception):
                     is_new = True
-        raise DbExperimentDataError("Unable to determine the existence of the entry.")
+        raise ExperimentDataError("Unable to determine the existence of the entry.")
     except Exception:  # pylint: disable=broad-except
         # Don't fail the experiment just because its data cannot be saved.
         LOG.error("Unable to save the experiment data: %s", traceback.format_exc())
@@ -222,6 +222,27 @@ class ThreadSafeContainer(ABC):
         """Remove all elements from this container."""
         with self.lock:
             self._container.clear()
+
+    def __json_encode__(self):
+        cpy = self.copy_object()
+        return {"_container": cpy._container}
+
+    @classmethod
+    def __json_decode__(cls, value):
+        ret = cls()
+        ret._container = value["_container"]
+        return ret
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Remove non-pickleable attribute
+        del state["_lock"]
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # Initialize non-pickleable attribute
+        self._lock = threading.RLock()
 
 
 class ThreadSafeOrderedDict(ThreadSafeContainer):

@@ -62,11 +62,13 @@ class TestT2Hahn(QiskitExperimentsTestCase):
             )
             expdata = exp.run(backend=backend, shots=1000)
             self.assertExperimentDone(expdata, timeout=300)
+            self.assertRoundTripSerializable(expdata, check_func=self.experiment_data_equiv)
+            self.assertRoundTripPickle(expdata, check_func=self.experiment_data_equiv)
             result = expdata.analysis_results("T2")
             fitval = result.value
             if num_of_echoes != 0:
                 self.assertEqual(result.quality, "good")
-                self.assertAlmostEqual(fitval.value, estimated_t2hahn, delta=3)
+                self.assertAlmostEqual(fitval.n, estimated_t2hahn, delta=3)
 
     def test_t2hahn_parallel(self):
         """
@@ -105,7 +107,7 @@ class TestT2Hahn(QiskitExperimentsTestCase):
 
             fitval = res_t2.value
             self.assertEqual(res_t2.quality, "good")
-            self.assertAlmostEqual(fitval.value, t2hahn[i], delta=3)
+            self.assertAlmostEqual(fitval.n, t2hahn[i], delta=3)
 
     def test_t2hahn_concat_2_experiments(self):
         """
@@ -144,15 +146,15 @@ class TestT2Hahn(QiskitExperimentsTestCase):
 
         fitval = res_t2_1.value
         self.assertEqual(res_t2_1.quality, "good")
-        self.assertAlmostEqual(fitval.value, estimated_t2hahn, delta=3)
+        self.assertAlmostEqual(fitval.n, estimated_t2hahn, delta=3)
 
         self.assertAlmostEqual(
-            fitval.value,
+            fitval.n,
             estimated_t2hahn,
-            delta=TestT2Hahn.__tolerance__ * res_t2_1.value.value,
+            delta=TestT2Hahn.__tolerance__ * res_t2_1.value.n,
         )
 
-        self.assertLessEqual(res_t2_1.value.stderr, res_t2_0.value.stderr)
+        self.assertLessEqual(res_t2_1.value.s, res_t2_0.value.s)
         self.assertEqual(len(expdata1.data()), len(delays0) + len(delays1))
 
     def test_experiment_config(self):
@@ -164,8 +166,30 @@ class TestT2Hahn(QiskitExperimentsTestCase):
 
     def test_roundtrip_serializable(self):
         """Test round trip JSON serialization"""
-        exp = T2Hahn(0, [1, 2, 3, 4, 5])
+
+        delays0 = list(range(1, 60, 2))
+
+        exp = T2Hahn(0, delays0)
         self.assertRoundTripSerializable(exp, self.json_equiv)
+
+        osc_freq = 0.08
+        estimated_t2hahn = 30
+        backend = T2HahnBackend(
+            t2hahn=[estimated_t2hahn],
+            frequency=[osc_freq],
+            initialization_error=[0.0],
+            readout0to1=[0.02],
+            readout1to0=[0.02],
+        )
+        exp.analysis.set_options(p0={"amp": 0.5, "tau": estimated_t2hahn, "base": 0.5}, plot=False)
+        expdata = exp.run(backend=backend, shots=1000).block_for_results()
+        self.assertExperimentDone(expdata)
+
+        # Checking serialization of the experiment data
+        self.assertRoundTripSerializable(expdata, self.experiment_data_equiv)
+
+        # Checking serialization of the analysis
+        self.assertRoundTripSerializable(expdata.analysis_results(1), self.analysis_result_equiv)
 
     def test_analysis_config(self):
         """ "Test converting analysis to and from config works"""
