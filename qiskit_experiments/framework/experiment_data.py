@@ -719,6 +719,7 @@ class ExperimentData:
         # Add futures for extracting finished job data
         timeout_ids = []
         for job in jobs:
+            print("adding job, id=", job.job_id())
             jid = job.job_id()
             if self.backend is not None and self.backend.name() != job.backend().name():
                 LOG.warning(

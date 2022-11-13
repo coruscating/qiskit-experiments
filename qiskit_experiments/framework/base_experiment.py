@@ -20,14 +20,33 @@ from typing import Sequence, Optional, Tuple, List, Dict, Union
 import warnings
 
 from qiskit import transpile, QuantumCircuit
+from qiskit.circuit.library.standard_gates import XGate, RZGate
 from qiskit.providers import Job, Backend
 from qiskit.exceptions import QiskitError
 from qiskit.qobj.utils import MeasLevel
+from qiskit.transpiler.timing_constraints import TimingConstraints
+import numpy as np
 from qiskit.providers.options import Options
 from qiskit_experiments.framework.store_init_args import StoreInitArgs
 from qiskit_experiments.framework.base_analysis import BaseAnalysis
 from qiskit_experiments.framework.experiment_data import ExperimentData
 from qiskit_experiments.framework.configs import ExperimentConfig
+from qiskit.transpiler import PassManager, InstructionDurations, CouplingMap
+from qiskit.transpiler.passes import (
+    ALAPScheduleAnalysis,
+    PadDynamicalDecoupling,
+)
+from qiskit.transpiler.passes import (
+    TimeUnitConversion,
+    ALAPScheduleAnalysis,
+    PadDelay,
+    ConstrainedReschedule,
+    ALAPSchedule,
+    DynamicalDecoupling,
+)
+
+# from qiskit.transpiler.passes.utils.combine_adjacent_delays import CombineAdjacentDelays
+# from qiskit.transpiler.passes.scheduling.dynamical_decoupling_multi import DynamicalDecouplingMulti
 
 
 class BaseExperiment(ABC, StoreInitArgs):
@@ -58,6 +77,8 @@ class BaseExperiment(ABC, StoreInitArgs):
         self._num_qubits = len(qubits)
         self._physical_qubits = tuple(qubits)
         if self._num_qubits != len(set(self._physical_qubits)):
+            print(self._num_qubits)
+            print(self._physical_qubits)
             raise QiskitError("Duplicate qubits in physical qubits list.")
 
         # Experiment options
@@ -199,6 +220,7 @@ class BaseExperiment(ABC, StoreInitArgs):
         backend: Optional[Backend] = None,
         analysis: Optional[Union[BaseAnalysis, None]] = "default",
         timeout: Optional[float] = None,
+        transpiled_circuits=None,
         **run_options,
     ) -> ExperimentData:
         """Run an experiment and perform analysis.
@@ -262,7 +284,8 @@ class BaseExperiment(ABC, StoreInitArgs):
         experiment._finalize()
 
         # Generate and transpile circuits
-        transpiled_circuits = experiment._transpiled_circuits()
+        if transpiled_circuits is None:
+            transpiled_circuits = experiment._transpiled_circuits()
 
         # Initialize result container
         experiment_data = experiment._initialize_experiment_data()
@@ -270,8 +293,64 @@ class BaseExperiment(ABC, StoreInitArgs):
         # Run options
         run_opts = experiment.run_options.__dict__
 
+        if "dd" in run_opts and (run_opts["dd"] == "standard" or run_opts["dd"] == True):
+            print("regular dd")
+            durations = InstructionDurations.from_backend(experiment.backend)
+            dd_sequence = [XGate(), XGate()]
+            pm = PassManager(
+                [
+                    ALAPScheduleAnalysis(durations),
+                    PadDynamicalDecoupling(
+                        durations,
+                        dd_sequence,
+                        pulse_alignment=backend.configuration().timing_constraints[
+                            "pulse_alignment"
+                        ],
+                    ),
+                ]
+            )
+            dd_circuits = [pm.run(circ) for circ in transpiled_circuits]
+            jobs = experiment._run_jobs(dd_circuits, **run_opts)
+        elif "dd" in run_opts and run_opts["dd"] == "single_multi_dd":
+            print("single multi dd")
+            instruction_durations = InstructionDurations.from_backend(experiment.backend)
+            timing_constraints = TimingConstraints(**backend.configuration().timing_constraints)
+            dd_sequence = [XGate(), XGate()]
+            coupling_map = CouplingMap(backend.configuration().coupling_map)
+
+            pm = PassManager(
+                [
+                    TimeUnitConversion(instruction_durations),
+                    ALAPScheduleAnalysis(instruction_durations),
+                    ConstrainedReschedule(
+                        acquire_alignment=timing_constraints.acquire_alignment,
+                        pulse_alignment=timing_constraints.pulse_alignment,
+                    ),
+                    PadDelay(),
+                    CombineAdjacentDelays(coupling_map),
+                    DynamicalDecoupling(
+                        durations=instruction_durations,
+                        dd_sequence=[XGate(), RZGate(np.pi), XGate(), RZGate(-np.pi)],
+                        spacing=[1 / 4, 1 / 2, 0, 0, 1 / 4],
+                        pulse_alignment=timing_constraints.pulse_alignment,
+                        skip_reset_qubits=True,
+                    ),
+                    DynamicalDecouplingMulti(
+                        durations=instruction_durations,
+                        coupling_map=coupling_map,
+                        pulse_alignment=timing_constraints.pulse_alignment,
+                        skip_reset_qubits=True,
+                        skip_threshold=0.1,
+                    ),
+                ]
+            )
+            dd_circuits = [pm.run(circ) for circ in transpiled_circuits]
+            jobs = experiment._run_jobs(dd_circuits, **run_opts)
+        else:
+            print("no dd")
+            jobs = experiment._run_jobs(transpiled_circuits, **run_opts)
+
         # Run jobs
-        jobs = experiment._run_jobs(transpiled_circuits, **run_opts)
         experiment_data.add_jobs(jobs, timeout=timeout)
 
         # Optionally run analysis
@@ -331,15 +410,46 @@ class BaseExperiment(ABC, StoreInitArgs):
     def _run_jobs(self, circuits: List[QuantumCircuit], **run_options) -> List[Job]:
         """Run circuits on backend as 1 or more jobs."""
         # Run experiment jobs
-        max_experiments = getattr(self.backend.configuration(), "max_experiments", None)
-        if max_experiments and len(circuits) > max_experiments:
+        max_experiments = getattr(self.backend.configuration(), "max_experiments", 1000000)
+        # temporary solution, split every job...
+        # max_shots = getattr(self.backend.configuration(), "max_shots", None)
+
+        def split(a, n):
+            k, m = divmod(len(a), n)
+            return (a[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
+
+        ops = 0
+        for c in circuits:
+            ops += sum(c.count_ops().values())
+
+        max_ops = 1000000
+
+        pieces_ops = ops // max_ops + 1
+        pieces_circuits = len(circuits) // max_experiments + 1
+        print("pieces_ops", pieces_ops, " pieces_circuits", pieces_circuits)
+
+        if pieces_ops >= pieces_circuits and pieces_ops > 1:
+            job_circuits = list(split(circuits, ops // max_ops + 1))
+            print("ops=", ops, "split to ", ops // max_ops + 1)
+
+        elif pieces_circuits >= pieces_ops and pieces_circuits > 1:
+            print("splitting circuits to ", pieces_circuits)
             # Split jobs for backends that have a maximum job size
             job_circuits = [
                 circuits[i : i + max_experiments] for i in range(0, len(circuits), max_experiments)
             ]
         else:
+            print("running as a single job")
             # Run as single job
             job_circuits = [circuits]
+
+        # job_circuits = [circuits[: len(circuits) // 2], circuits[len(circuits) // 2 :]]
+
+        # if max_experiments and len(circuits) > max_experiments:
+        #     # Split jobs for backends that have a maximum job size
+        #     job_circuits = [
+        #         circuits[i : i + max_experiments] for i in range(0, len(circuits), max_experiments)
+        #     ]
 
         # Run jobs
         jobs = [self.backend.run(circs, **run_options) for circs in job_circuits]

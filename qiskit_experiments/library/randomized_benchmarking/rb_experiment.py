@@ -34,7 +34,7 @@ from .clifford_utils import CliffordUtils
 LOG = logging.getLogger(__name__)
 
 
-class StandardRB(BaseExperiment, RestlessMixin):
+class StandardRB(BaseExperiment):
     """Standard randomized benchmarking experiment.
 
     # section: overview

@@ -24,7 +24,7 @@ from scipy.spatial.distance import hamming
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData
-from qiskit_experiments.database_service import DbAnalysisResultV1
+from qiskit_experiments.framework.analysis_result import AnalysisResult
 from qiskit_experiments.data_processing.exceptions import DataProcessorError
 from uncertainties import unumpy as unp  # pylint: disable=wrong-import-order
 
@@ -621,7 +621,7 @@ def _exclude_1q_error(
     epc: Union[float, "UFloat"],
     qubits: Tuple[int, int],
     gate_counts_per_clifford: Dict[QubitGateTuple, float],
-    extra_analyses: Optional[List[DbAnalysisResultV1]],
+    extra_analyses: Optional[List[AnalysisResult]],
 ) -> Union[float, "UFloat"]:
     """A helper method to exclude contribution of single qubit gates from 2Q EPC.
 
