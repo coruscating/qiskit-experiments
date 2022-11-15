@@ -22,6 +22,7 @@ try:
         LinearDiscriminantAnalysis,
         QuadraticDiscriminantAnalysis,
     )
+    from sklearn.mixture import GaussianMixture
 
     HAS_SKLEARN = True
 except ImportError:
@@ -31,7 +32,7 @@ except ImportError:
 class SkLDA(BaseDiscriminator):
     """A wrapper for the SKlearn linear discriminant analysis."""
 
-    def __init__(self, lda: "LinearDiscriminantAnalysis"):
+    def __init__(self, lda: LinearDiscriminantAnalysis):
         """
         Args:
             lda: The sklearn linear discriminant analysis. This may be a trained or an
@@ -62,7 +63,7 @@ class SkLDA(BaseDiscriminator):
 
     @property
     def discriminator(self) -> Any:
-        """Return then SKLearn object."""
+        """Return the SKLearn object."""
         return self._lda
 
     def is_trained(self) -> bool:
@@ -107,7 +108,7 @@ class SkLDA(BaseDiscriminator):
 class SkQDA(BaseDiscriminator):
     """A wrapper for the SKlearn quadratic discriminant analysis."""
 
-    def __init__(self, qda: "QuadraticDiscriminantAnalysis"):
+    def __init__(self, qda: QuadraticDiscriminantAnalysis):
         """
         Args:
             qda: The sklearn quadratic discriminant analysis. This may be a trained or an
@@ -134,12 +135,12 @@ class SkQDA(BaseDiscriminator):
             "classes_",
             "n_features_in_",
             "feature_names_in_",
-            "rotations_"
+            "rotations_",
         ]
 
     @property
     def discriminator(self) -> Any:
-        """Return then SKLearn object."""
+        """Return the SKLearn object."""
         return self._qda
 
     def is_trained(self) -> bool:
@@ -179,3 +180,75 @@ class SkQDA(BaseDiscriminator):
                 setattr(qda, name, value)
 
         return SkQDA(qda)
+
+
+class SkGaussianMixture(BaseDiscriminator):
+    """A wrapper for the SKlearn Gaussian mixture classifier."""
+
+    def __init__(self, gaussian: GaussianMixture):
+        """
+        Args:
+            gaussian: The sklearn Gaussian mixture. This may be a trained or an
+                untrained discriminator.
+
+        Raises:
+            DataProcessorError: if SKlearn could not be imported.
+        """
+        if not HAS_SKLEARN:
+            raise DataProcessorError(
+                f"SKlearn is needed to initialize an {self.__class__.__name__}."
+            )
+
+        self._gaussian = gaussian
+        self.attributes = [
+            "weights_",
+            "means_",
+            "covariances_",
+            "precisions_",
+            "n_features_in_",
+            "feature_names_in_",
+        ]
+
+    @property
+    def discriminator(self) -> Any:
+        """Return the SKLearn object."""
+        return self._gaussian
+
+    def is_trained(self) -> bool:
+        """Return True if the discriminator has been trained on data."""
+        return not getattr(self._gaussian, "weights_", None) is None
+
+    def predict(self, data: List):
+        """Wrap the predict method of the Gaussian mixture."""
+        return self._gaussian.predict(data)
+
+    def fit(self, data: List, labels: List):
+        """Fit the Gaussian mixture.
+
+        Args:
+            data: The independent data.
+            labels: The labels corresponding to data.
+        """
+        print(data)
+        self._gaussian.fit(data, labels)
+
+    def config(self) -> Dict[str, Any]:
+        """Return the configuration of the LDA."""
+        attr_conf = {attr: getattr(self._gaussian, attr, None) for attr in self.attributes}
+        return {"params": self._gaussian.get_params(), "attributes": attr_conf}
+
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> "SkGaussianMixture":
+        """Deserialize from an object."""
+
+        if not HAS_SKLEARN:
+            raise DataProcessorError(f"SKlearn is needed to initialize an {cls.__name__}.")
+
+        lda = GaussianMixture()
+        lda.set_params(**config["params"])
+
+        for name, value in config["attributes"].items():
+            if value is not None:
+                setattr(lda, name, value)
+
+        return SkGaussianMixture(lda)
