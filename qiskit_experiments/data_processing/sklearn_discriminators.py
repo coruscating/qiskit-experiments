@@ -182,7 +182,7 @@ class SkQDA(BaseDiscriminator):
         return SkQDA(qda)
 
 
-class SkGaussianMixture(BaseDiscriminator):
+class SkGaussian(BaseDiscriminator):
     """A wrapper for the SKlearn Gaussian mixture classifier."""
 
     def __init__(self, gaussian: GaussianMixture):
@@ -244,11 +244,11 @@ class SkGaussianMixture(BaseDiscriminator):
         if not HAS_SKLEARN:
             raise DataProcessorError(f"SKlearn is needed to initialize an {cls.__name__}.")
 
-        lda = GaussianMixture()
-        lda.set_params(**config["params"])
+        gaussian = GaussianMixture()
+        gaussian.set_params(**config["params"])
 
         for name, value in config["attributes"].items():
             if value is not None:
-                setattr(lda, name, value)
+                setattr(gaussian, name, value)
 
-        return SkGaussianMixture(lda)
+        return SkGaussian(gaussian)

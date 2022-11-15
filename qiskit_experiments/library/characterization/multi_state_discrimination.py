@@ -50,12 +50,13 @@ class MultiStateDiscrimination(BaseExperiment):
                       └───┘└─────┘└─────┘ ░ └╥┘
                 meas: ═══════════════════════╩═
 
+    # section: analysis_ref
+        :py:class:`MultiStateDiscriminationAnalysis`
+
     # section: reference
         `Qiskit Textbook <https://qiskit.org/textbook/ch-quantum-hardware/accessing\
         _higher_energy_states.html>`_.
 
-    # section: tutorial
-        :doc:`TODO?`
     """
 
     @classmethod
@@ -81,6 +82,7 @@ class MultiStateDiscrimination(BaseExperiment):
         """
         options = super()._default_experiment_options()
         options.n_states = 2
+        options.schedules = None
 
         return options
 
