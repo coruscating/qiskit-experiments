@@ -421,8 +421,8 @@ class BaseExperiment(ABC, StoreInitArgs):
         ops = 0
         for c in circuits:
             ops += sum(c.count_ops().values())
-
-        max_ops = 1000000
+        # 200000 for sherbrooke, 1000000 for other devices
+        max_ops = 200000
 
         pieces_ops = ops // max_ops + 1
         pieces_circuits = len(circuits) // max_experiments + 1
