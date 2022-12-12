@@ -295,62 +295,7 @@ class BaseExperiment(ABC, StoreInitArgs):
         # Run options
         run_opts = experiment.run_options.__dict__
 
-        if "dd" in run_opts and (run_opts["dd"] == "standard" or run_opts["dd"] == True):
-            print("regular dd")
-            durations = InstructionDurations.from_backend(experiment.backend)
-            dd_sequence = [XGate(), XGate()]
-            pm = PassManager(
-                [
-                    ALAPScheduleAnalysis(durations),
-                    PadDynamicalDecoupling(
-                        durations,
-                        dd_sequence,
-                        pulse_alignment=backend.configuration().timing_constraints[
-                            "pulse_alignment"
-                        ],
-                    ),
-                ]
-            )
-            dd_circuits = [pm.run(circ) for circ in transpiled_circuits]
-            jobs = experiment._run_jobs(dd_circuits, **run_opts)
-        elif "dd" in run_opts and run_opts["dd"] == "single_multi_dd":
-            print("single multi dd")
-            instruction_durations = InstructionDurations.from_backend(experiment.backend)
-            timing_constraints = TimingConstraints(**backend.configuration().timing_constraints)
-            dd_sequence = [XGate(), XGate()]
-            coupling_map = CouplingMap(backend.configuration().coupling_map)
-
-            pm = PassManager(
-                [
-                    TimeUnitConversion(instruction_durations),
-                    ALAPScheduleAnalysis(instruction_durations),
-                    ConstrainedReschedule(
-                        acquire_alignment=timing_constraints.acquire_alignment,
-                        pulse_alignment=timing_constraints.pulse_alignment,
-                    ),
-                    PadDelay(),
-                    CombineAdjacentDelays(coupling_map),
-                    DynamicalDecoupling(
-                        durations=instruction_durations,
-                        dd_sequence=[XGate(), RZGate(np.pi), XGate(), RZGate(-np.pi)],
-                        spacing=[1 / 4, 1 / 2, 0, 0, 1 / 4],
-                        pulse_alignment=timing_constraints.pulse_alignment,
-                        skip_reset_qubits=True,
-                    ),
-                    DynamicalDecouplingMulti(
-                        durations=instruction_durations,
-                        coupling_map=coupling_map,
-                        pulse_alignment=timing_constraints.pulse_alignment,
-                        skip_reset_qubits=True,
-                        skip_threshold=0.1,
-                    ),
-                ]
-            )
-            dd_circuits = [pm.run(circ) for circ in transpiled_circuits]
-            jobs = experiment._run_jobs(dd_circuits, **run_opts)
-        else:
-            print("no dd")
-            jobs = experiment._run_jobs(transpiled_circuits, **run_opts)
+        jobs = experiment._run_jobs(transpiled_circuits, **run_opts)
 
         # Run jobs
         experiment_data.add_jobs(jobs, timeout=timeout)
@@ -412,13 +357,9 @@ class BaseExperiment(ABC, StoreInitArgs):
     def _run_jobs(self, circuits: List[QuantumCircuit], **run_options) -> List[Job]:
         """Run circuits on backend as 1 or more jobs."""
         # Run experiment jobs
-        # max_experiments = getattr(self.backend.configuration(), "max_experiments", 1000000)
+        max_experiments = getattr(self.backend.configuration(), "max_experiments", 1000000)
         # # temporary solution, split every job...
         # # max_shots = getattr(self.backend.configuration(), "max_shots", None)
-
-        # def split(a, n):
-        #     k, m = divmod(len(a), n)
-        #     return (a[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
 
         # ops = 0
         # for c in circuits:
@@ -436,8 +377,29 @@ class BaseExperiment(ABC, StoreInitArgs):
 
         # elif pieces_circuits >= pieces_ops and pieces_circuits > 1:
         #     print("splitting circuits to ", pieces_circuits)
+
+        def split(a, n):
+            k, m = divmod(len(a), n)
+            return (a[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
+
+        ops = 0
+        for c in circuits:
+            ops += sum(c.count_ops().values())
+
+        # 200000 for sherbrooke, 1000000 for other devices
+        max_ops = 300000
+
+        pieces_ops = ops // max_ops + 1
+        pieces_circuits = len(circuits) // max_experiments + 1
+        print("pieces_ops", pieces_ops, " pieces_circuits", pieces_circuits)
+
         max_circuits = self._backend_data.max_circuits
-        if max_circuits and len(circuits) > max_circuits:
+
+        if pieces_ops >= pieces_circuits and pieces_ops > 1:
+            job_circuits = list(split(circuits, ops // max_ops + 1))
+            print("ops=", ops, "split to ", ops // max_ops + 1)
+
+        elif max_circuits and len(circuits) > max_circuits:
             # Split jobs for backends that have a maximum job size
             job_circuits = [
                 circuits[i : i + max_circuits] for i in range(0, len(circuits), max_circuits)
@@ -484,6 +446,7 @@ class BaseExperiment(ABC, StoreInitArgs):
         transpile_opts = copy.copy(self.transpile_options.__dict__)
         transpile_opts["initial_layout"] = list(self.physical_qubits)
         transpiled = transpile(self.circuits(), self.backend, **transpile_opts)
+        print(transpile_opts)
 
         # TODO remove this deprecation after 0.3.0 release
         if hasattr(self, "_postprocess_transpiled_circuits"):
@@ -494,6 +457,63 @@ class BaseExperiment(ABC, StoreInitArgs):
                 DeprecationWarning,
             )
             self._postprocess_transpiled_circuits(transpiled)  # pylint: disable=no-member
+
+        # Run options
+        run_opts = self.run_options.__dict__
+
+        if "dd" in run_opts and (run_opts["dd"] == "standard" or run_opts["dd"] == True):
+            print("regular dd")
+            durations = InstructionDurations.from_backend(self.backend)
+            dd_sequence = [XGate(), XGate()]
+            pm = PassManager(
+                [
+                    ALAPScheduleAnalysis(durations),
+                    PadDynamicalDecoupling(
+                        durations,
+                        dd_sequence,
+                        pulse_alignment=self.backend.configuration().timing_constraints[
+                            "pulse_alignment"
+                        ],
+                    ),
+                ]
+            )
+            transpiled = [pm.run(circ) for circ in transpiled]
+        elif "dd" in run_opts and run_opts["dd"] == "single_multi_dd":
+            print("single multi dd")
+            instruction_durations = InstructionDurations.from_backend(self.backend)
+            timing_constraints = TimingConstraints(**self.configuration().timing_constraints)
+            dd_sequence = [XGate(), XGate()]
+            coupling_map = CouplingMap(self.configuration().coupling_map)
+
+            pm = PassManager(
+                [
+                    TimeUnitConversion(instruction_durations),
+                    ALAPScheduleAnalysis(instruction_durations),
+                    ConstrainedReschedule(
+                        acquire_alignment=timing_constraints.acquire_alignment,
+                        pulse_alignment=timing_constraints.pulse_alignment,
+                    ),
+                    PadDelay(),
+                    CombineAdjacentDelays(coupling_map),
+                    DynamicalDecoupling(
+                        durations=instruction_durations,
+                        dd_sequence=[XGate(), RZGate(np.pi), XGate(), RZGate(-np.pi)],
+                        spacing=[1 / 4, 1 / 2, 0, 0, 1 / 4],
+                        pulse_alignment=timing_constraints.pulse_alignment,
+                        skip_reset_qubits=True,
+                    ),
+                    DynamicalDecouplingMulti(
+                        durations=instruction_durations,
+                        coupling_map=coupling_map,
+                        pulse_alignment=timing_constraints.pulse_alignment,
+                        skip_reset_qubits=True,
+                        skip_threshold=0.1,
+                    ),
+                ]
+            )
+            transpiled = [pm.run(circ) for circ in transpiled]
+        else:
+            print("no dd")
 
         return transpiled
 
