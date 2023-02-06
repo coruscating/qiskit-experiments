@@ -391,13 +391,13 @@ class BaseExperiment(ABC, StoreInitArgs):
 
         pieces_ops = ops // max_ops + 1
         pieces_circuits = len(circuits) // max_experiments + 1
-        print("pieces_ops", pieces_ops, " pieces_circuits", pieces_circuits)
+        # print("pieces_ops", pieces_ops, " pieces_circuits", pieces_circuits)
 
         max_circuits = self._backend_data.max_circuits
 
         if pieces_ops >= pieces_circuits and pieces_ops > 1:
             job_circuits = list(split(circuits, ops // max_ops + 1))
-            print("ops=", ops, "split to ", ops // max_ops + 1)
+            # print("ops=", ops, "split to ", ops // max_ops + 1)
 
         elif max_circuits and len(circuits) > max_circuits:
             # Split jobs for backends that have a maximum job size
