@@ -36,6 +36,7 @@ from qiskit.pulse.channels import PulseChannel
 from qiskit.circuit import Parameter, ParameterExpression
 from qiskit.providers.backend import Backend
 
+from qiskit_experiments.warnings import deprecate_arguments
 from qiskit_experiments.exceptions import CalibrationError
 from qiskit_experiments.calibration_management.basis_gate_library import BasisGateLibrary
 from qiskit_experiments.calibration_management.parameter_value import ParameterValue
@@ -347,10 +348,11 @@ class Calibrations:
 
         return inst_map
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def update_inst_map(
         self,
         schedules: Optional[Set[str]] = None,
-        qubits: Optional[Tuple[int, ...]] = None,
+        physical_qubits: Optional[Tuple[int, ...]] = None,
         group: Optional[str] = "default",
         cutoff_date: datetime = None,
         inst_map: Optional[InstructionScheduleMap] = None,
@@ -362,10 +364,10 @@ class Calibrations:
         Args:
             schedules: The name of the schedules to update. If None is given then
                 all schedules will be pushed to instructions.
-            qubits: The qubits for which to update the instruction schedule map.
-                If qubits is None then all possible schedules defined by the coupling
+            physical_qubits: The physical qubits for which to update the instruction schedule map.
+                If physical_qubits is None then all possible schedules defined by the coupling
                 map will be updated. Note that this argument specifies a particular set of
-                qubits to update instructions for. For example, if qubits is :code:`(2, 3)` then
+                qubits to update instructions for. For example, if physical_qubits is :code:`(2, 3)` then
                 only two-qubit instructions that apply to qubits 2 and 3 will be updated. Here,
                 single-qubit instructions will not be updated.
             group: The calibration group from which to draw the parameters. If not specified
@@ -385,17 +387,18 @@ class Calibrations:
             if schedules is not None and sched_name not in schedules:
                 continue
 
-            if qubits:
-                self._robust_inst_map_add(inst_map, sched_name, qubits, group, cutoff_date)
+            if physical_qubits:
+                self._robust_inst_map_add(inst_map, sched_name, physical_qubits, group, cutoff_date)
             else:
                 for qubits_ in self._operated_qubits[self._schedules_qubits[key]]:
                     self._robust_inst_map_add(inst_map, sched_name, qubits_, group, cutoff_date)
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def _robust_inst_map_add(
         self,
         inst_map: InstructionScheduleMap,
         sched_name: str,
-        qubits: Union[int, Tuple[int, ...]],
+        physical_qubits: Union[int, Tuple[int, ...]],
         group: str,
         cutoff: datetime,
     ):
@@ -410,14 +413,14 @@ class Calibrations:
 
         Args:
             sched_name: The name of the schedule.
-            qubits: The qubit to which the schedule applies. Note, these may be only a
+            physical_qubits: The physical qubits to which the schedule applies. Note, these may be only a
                 subset of the qubits in the schedule. For example, if the name of the
                 schedule is `"cr"` we may have `qubits` be `(3, )` and this function
                 will update the CR schedules on all schedules which involve qubit 3.
             group: The calibration group.
             cutoff: The cutoff date.
         """
-        for update_qubits in self._get_full_qubits_of_schedule(sched_name, qubits):
+        for update_qubits in self._get_full_qubits_of_schedule(sched_name, physical_qubits):
             try:
                 schedule = self.get_schedule(
                     sched_name, update_qubits, group=group, cutoff_date=cutoff
@@ -466,7 +469,7 @@ class Calibrations:
     def inst_map_add(
         self,
         instruction_name: str,
-        qubits: Tuple[int],
+        physical_qubits: Tuple[int],
         schedule_name: Optional[str] = None,
         assign_params: Optional[Dict[Union[str, ParameterKey], ParameterValueType]] = None,
     ):
@@ -486,7 +489,7 @@ class Calibrations:
 
         Args:
             instruction_name: The name of the instruction to add to the instruction schedule map.
-            qubits: The qubits to which the instruction will apply.
+            physical_qubits: The physical qubits to which the instruction will apply.
             schedule_name: The name of the schedule. If None is given then we assume that the
                 schedule and the instruction have the same name.
             assign_params: An optional dict of parameter mappings to apply. See for instance
@@ -500,15 +503,16 @@ class Calibrations:
 
         self._inst_map.add(
             instruction=instruction_name,
-            qubits=qubits,
-            schedule=self.get_schedule(schedule_name, qubits, assign_params),
+            qubits=physical_qubits,
+            schedule=self.get_schedule(schedule_name, physical_qubits, assign_params),
             arguments=inst_map_args,
         )
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def add_schedule(
         self,
         schedule: ScheduleBlock,
-        qubits: Union[int, Tuple[int, ...]] = None,
+        physical_qubits: Union[int, Tuple[int, ...]] = None,
         num_qubits: Optional[int] = None,
     ):
         """Add a schedule block and register its parameters.
@@ -517,7 +521,7 @@ class Calibrations:
 
         Args:
             schedule: The :class:`ScheduleBlock` to add.
-            qubits: The qubits for which to add the schedules. If None or an empty tuple is
+            physical_qubits: The physical qubits for which to add the schedules. If None or an empty tuple is
                 given then this schedule is the default schedule for all qubits and, in this
                 case, the number of qubits that this schedule act on must be given.
             num_qubits: The number of qubits that this schedule will act on when exported to
@@ -575,10 +579,10 @@ class Calibrations:
 
         # Check that subroutines are present.
         for reference in schedule.references:
-            self.get_template(*reference_info(reference, qubits))
+            self.get_template(*reference_info(reference, physical_qubits))
 
         # Clean the parameter to schedule mapping. This is needed if we overwrite a schedule.
-        self._clean_parameter_map(schedule.name, qubits)
+        self._clean_parameter_map(schedule.name, physical_qubits)
 
         # Add the schedule.
         self._schedules[sched_key] = schedule
@@ -599,8 +603,9 @@ class Calibrations:
         for param in params_to_register:
             self._register_parameter(param, qubits, schedule)
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def get_template(
-        self, schedule_name: str, qubits: Optional[Tuple[int, ...]] = None
+        self, schedule_name: str, physical_qubits: Optional[Tuple[int, ...]] = None
     ) -> ScheduleBlock:
         """Get a template schedule.
 
@@ -610,7 +615,7 @@ class Calibrations:
 
         Args:
             schedule_name: The name of the template schedule.
-            qubits: The qubits under which the template schedule was registered.
+            physical_qubits: The physical qubits under which the template schedule was registered.
 
         Returns:
             The registered template schedule.
@@ -619,7 +624,7 @@ class Calibrations:
             CalibrationError: if no template schedule for the given schedule name and qubits
                 was registered.
         """
-        key = ScheduleKey(schedule_name, self._to_tuple(qubits))
+        key = ScheduleKey(schedule_name, self._to_tuple(physical_qubits))
 
         if key in self._schedules:
             return self._schedules[key]
@@ -627,14 +632,17 @@ class Calibrations:
         if ScheduleKey(schedule_name, ()) in self._schedules:
             return self._schedules[ScheduleKey(schedule_name, ())]
 
-        if qubits:
-            msg = f"Could not find schedule {schedule_name} on qubits {qubits}."
+        if physical_qubits:
+            msg = f"Could not find schedule {schedule_name} on qubits {physical_qubits}."
         else:
             msg = f"Could not find schedule {schedule_name}."
 
         raise CalibrationError(msg)
 
-    def remove_schedule(self, schedule: ScheduleBlock, qubits: Union[int, Tuple[int, ...]] = None):
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
+    def remove_schedule(
+        self, schedule: ScheduleBlock, physical_qubits: Union[int, Tuple[int, ...]] = None
+    ):
         """Remove a schedule that was previously registered.
 
         Allows users to remove a schedule from the calibrations. The history of the parameters
@@ -642,13 +650,13 @@ class Calibrations:
 
         Args:
             schedule: The schedule to remove.
-            qubits: The qubits for which to remove the schedules. If None is given then this
+            physical_qubits: The physical qubits for which to remove the schedules. If None is given then this
                 schedule is the default schedule for all qubits.
 
         Raises:
             CalibrationError: If other schedules depend on ``schedule``.
         """
-        qubits = self._to_tuple(qubits)
+        qubits = self._to_tuple(physical_qubits)
         sched_key = ScheduleKey(schedule.name, qubits)
 
         # Remove the schedule from the schedule dependency DAG. Raise if others depend on it.
@@ -668,17 +676,18 @@ class Calibrations:
         # Clean the parameter to schedule mapping.
         self._clean_parameter_map(schedule.name, qubits)
 
-    def _clean_parameter_map(self, schedule_name: str, qubits: Tuple[int, ...]):
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
+    def _clean_parameter_map(self, schedule_name: str, physical_qubits: Tuple[int, ...]):
         """Clean the parameter to schedule mapping for the given schedule, parameter and qubits.
 
         Args:
             schedule_name: The name of the schedule.
-            qubits: The qubits to which this schedule applies.
+            physical_qubits: The physical qubits to which this schedule applies.
 
         """
         keys_to_remove = []  # of the form (schedule.name, parameter.name, qubits)
         for key in self._parameter_map:
-            if key.schedule == schedule_name and key.qubits == qubits:
+            if key.schedule == schedule_name and key.qubits == physical_qubits:
                 keys_to_remove.append(key)
 
         for key in keys_to_remove:
@@ -698,10 +707,11 @@ class Calibrations:
         for key in keys_to_delete:
             del self._parameter_map_r[key]
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def _register_parameter(
         self,
         parameter: Parameter,
-        qubits: Tuple[int, ...],
+        physical_qubits: Tuple[int, ...],
         schedule: ScheduleBlock = None,
     ):
         """Registers a parameter for the given schedule.
@@ -711,7 +721,7 @@ class Calibrations:
 
         Args:
             parameter: The parameter to register.
-            qubits: The qubits for which to register the parameter.
+            physical_qubits: The physical qubits for which to register the parameter.
             schedule: The schedule to which this parameter belongs. The schedule can
                 be None which allows the calibration to accommodate, e.g. qubit frequencies.
         """
@@ -720,7 +730,7 @@ class Calibrations:
             self._parameter_counter += 1
 
         sched_name = schedule.name if schedule else None
-        key = ParameterKey(parameter.name, qubits, sched_name)
+        key = ParameterKey(parameter.name, physical_qubits, sched_name)
         self._parameter_map[key] = parameter
         self._parameter_map_r[parameter].add(key)
 
@@ -735,10 +745,11 @@ class Calibrations:
         """
         return self._parameter_map_r
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def calibration_parameter(
         self,
         parameter_name: str,
-        qubits: Union[int, Tuple[int, ...]] = None,
+        physical_qubits: Union[int, Tuple[int, ...]] = None,
         schedule_name: str = None,
     ) -> Parameter:
         """Return a parameter given its keys.
@@ -748,7 +759,7 @@ class Calibrations:
 
         Args:
             parameter_name: Name of the parameter to get.
-            qubits: The qubits to which this parameter belongs. If qubits is None then
+            physical_qubits: The physical qubits to which this parameter belongs. If qubits is None then
                 the default scope is assumed and the key will be an empty tuple.
             schedule_name: The name of the schedule to which this parameter belongs. A
                 parameter may not belong to a schedule in which case None is accepted.
@@ -759,7 +770,7 @@ class Calibrations:
         Raises:
             CalibrationError: If the desired parameter is not found.
         """
-        qubits = self._to_tuple(qubits)
+        qubits = self._to_tuple(physical_qubits)
 
         # 1) Check for qubit specific parameters.
         if ParameterKey(parameter_name, qubits, schedule_name) in self._parameter_map:
@@ -774,11 +785,12 @@ class Calibrations:
                 f"and qubits {qubits}. No default value exists."
             )
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def add_parameter_value(
         self,
         value: Union[int, float, complex, ParameterValue],
         param: Union[Parameter, str],
-        qubits: Union[int, Tuple[int, ...]] = None,
+        physical_qubits: Union[int, Tuple[int, ...]] = None,
         schedule: Union[ScheduleBlock, str] = None,
         update_inst_map: bool = True,
     ):
@@ -792,7 +804,7 @@ class Calibrations:
                 then the timestamp of the parameter value will automatically be generated
                 and set to the current local time of the user.
             param: The parameter or its name for which to add the measured value.
-            qubits: The qubits to which this parameter applies.
+            physical_qubits: The qubits to which this parameter applies.
             schedule: The schedule or its name for which to add the measured parameter value.
             update_inst_map: Update the instruction schedule map if True (the default).
 
@@ -800,7 +812,7 @@ class Calibrations:
             CalibrationError: If the schedule name is given but no schedule with that name
                 exists.
         """
-        qubits = self._to_tuple(qubits)
+        qubits = self._to_tuple(physical_qubits)
 
         if isinstance(value, (int, float, complex)):
             value = ParameterValue(value, datetime.now(timezone.utc).astimezone())
@@ -830,7 +842,8 @@ class Calibrations:
             schedules.update(used_in_references(keys, self._schedule_dependency))
             self.update_inst_map(schedules, qubits=qubits)
 
-    def _get_channel_index(self, qubits: Tuple[int, ...], chan: PulseChannel) -> int:
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
+    def _get_channel_index(self, physical_qubits: Tuple[int, ...], chan: PulseChannel) -> int:
         """Get the index of the parameterized channel.
 
         The return index is determined from the given qubits and the name of the parameter
@@ -839,7 +852,7 @@ class Calibrations:
         following parameter names are valid: 'ch1', 'ch1.0', 'ch30.12', and 'ch1.0$1'.
 
         Args:
-            qubits: The qubits for which we want to obtain the channel index.
+            physical_qubits: The physical qubits for which we want to obtain the channel index.
             chan: The channel with a parameterized name.
 
         Returns:
@@ -861,10 +874,10 @@ class Calibrations:
             ):
                 index = int(chan.index.name[2:].split("$")[0])
 
-                if len(qubits) <= index:
+                if len(physical_qubits) <= index:
                     raise CalibrationError(f"Not enough qubits given for channel {chan}.")
 
-                return qubits[index]
+                return physical_qubits[index]
 
             # Control channels name example ch1.0$1
             if isinstance(chan, ControlChannel):
@@ -873,7 +886,7 @@ class Calibrations:
                 qubit_channels = channel_index_parts[0]
 
                 indices = [int(sub_channel) for sub_channel in qubit_channels.split(".")]
-                ch_qubits = tuple(qubits[index] for index in indices)
+                ch_qubits = tuple(physical_qubits[index] for index in indices)
                 chs_ = self._control_channel_map.get(ch_qubits, [])
 
                 control_index = 0
@@ -882,7 +895,7 @@ class Calibrations:
 
                 if len(chs_) <= control_index:
                     raise CalibrationError(
-                        f"Control channel index {control_index} not found for qubits {qubits}."
+                        f"Control channel index {control_index} not found for qubits {physical_qubits}."
                     )
 
                 return chs_[control_index].index
@@ -894,10 +907,11 @@ class Calibrations:
 
         return chan.index
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def get_parameter_value(
         self,
         param: Union[Parameter, str],
-        qubits: Union[int, Tuple[int, ...]],
+        physical_qubits: Union[int, Tuple[int, ...]],
         schedule: Union[ScheduleBlock, str, None] = None,
         valid_only: bool = True,
         group: str = "default",
@@ -918,7 +932,7 @@ class Calibrations:
 
         Args:
             param: The parameter or the name of the parameter for which to get the parameter value.
-            qubits: The qubits for which to get the value of the parameter.
+            physical_qubits: The qubits for which to get the value of the parameter.
             schedule: The schedule or its name for which to get the parameter value.
             valid_only: Use only parameters marked as valid.
             group: The calibration group from which to draw the parameters.
@@ -988,6 +1002,7 @@ class Calibrations:
         # 5) Return the most recent parameter.
         return max(enumerate(candidates), key=lambda x: (x[1].date_time, x[0]))[1].value
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def _standardize_assign_params(
         self,
         assign_params: Dict,
@@ -1029,10 +1044,11 @@ class Calibrations:
 
         return linked_assign_params
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def get_schedule(
         self,
         name: str,
-        qubits: Union[int, Tuple[int, ...]],
+        physical_qubits: Union[int, Tuple[int, ...]],
         assign_params: Dict[Union[str, ParameterKey], ParameterValueType] = None,
         group: Optional[str] = "default",
         cutoff_date: datetime = None,
@@ -1056,7 +1072,7 @@ class Calibrations:
 
         Args:
             name: The name of the schedule to get.
-            qubits: The qubits for which to get the schedule.
+            physical_qubits: The qubits for which to get the schedule.
             assign_params: The parameters to assign manually. Each parameter is specified by a
                 ParameterKey which is a named tuple of the form (parameter name, qubits,
                 schedule name). Each entry in assign_params can also be a string corresponding
@@ -1077,7 +1093,7 @@ class Calibrations:
             CalibrationError: If the name of the schedule is not known.
             CalibrationError: If a parameter could not be found.
         """
-        qubits = self._to_tuple(qubits)
+        qubits = self._to_tuple(physical_qubits)
 
         assign_params = self._standardize_assign_params(assign_params, qubits, name)
 
@@ -1125,10 +1141,11 @@ class Calibrations:
 
         return assigned_schedule
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def _assign(
         self,
         schedule: ScheduleBlock,
-        qubits: Tuple[int, ...],
+        physical_qubits: Tuple[int, ...],
         assign_params: Dict[Union[str, ParameterKey], ParameterValueType],
         group: Optional[str] = "default",
         cutoff_date: datetime = None,
@@ -1141,7 +1158,7 @@ class Calibrations:
         Args:
             schedule: The schedule with assigned channel indices for which we wish to
                 assign values to non-channel parameters.
-            qubits: The qubits for which to get the schedule.
+            physical_qubits: The qubits for which to get the schedule.
             assign_params: The parameters to manually assign. See get_schedules for details.
             group: The calibration group of the parameters.
             cutoff_date: Retrieve the most recent parameter up until the cutoff date. Parameters
@@ -1173,7 +1190,7 @@ class Calibrations:
                 for qubit in self._controls_config_r[chan]:
                     qubit_set.add(qubit)
 
-        qubits_ = tuple(qubit for qubit in qubits if qubit in qubit_set)
+        qubits_ = tuple(qubit for qubit in physical_qubits if qubit in qubit_set)
 
         # 2) Build the parameter binding dictionary.
         # 2a) Handle parameter assignments that come outside of Calibrations
@@ -1237,7 +1254,7 @@ class Calibrations:
         Returns:
             data: A list of dictionaries with all the schedules in it. The key-value pairs are
 
-                * 'qubits': the qubits to which this schedule applies. This may be an empty
+                * 'physical_qubits': the qubits to which this schedule applies. This may be an empty
                   tuple () if the schedule is the default for all qubits.
                 * 'schedule': The schedule.
                 * 'parameters': The parameters in the schedule exposed for convenience.
@@ -1263,7 +1280,7 @@ class Calibrations:
         Args:
             parameters: The parameter names that should be included in the returned
                 table. If None is given then all names are included.
-            qubit_list: The qubits that should be included in the returned table.
+            qubit_list: The physical qubits that should be included in the returned table.
                 If None is given then all channels are returned.
             schedules: The schedules to which to restrict the output.
             most_recent_only: return only the most recent parameter values.
@@ -1468,6 +1485,7 @@ class Calibrations:
 
         self.update_inst_map()
 
+    @deprecate_arguments({"qubits": "physical_qubits"}, "0.5")
     def _add_parameter_value_from_conf(
         self,
         value: Union[str, int, float, complex],
@@ -1477,7 +1495,7 @@ class Calibrations:
         group: str,
         schedule: Union[str, None],
         parameter: str,
-        qubits: Union[str, int, Tuple[int, ...]],
+        physical_qubits: Union[str, int, Tuple[int, ...]],
     ):
         """Add a parameter value from a parameter configuration.
 
@@ -1493,7 +1511,7 @@ class Calibrations:
             schedule: The schedule to which the parameter belongs. The empty string
                 "" is converted to None.
             parameter: The name of the parameter.
-            qubits: The qubits on which the parameter acts.
+            physical_qubits: The physical qubits on which the parameter acts.
         """
         param_val = ParameterValue(value, date_time, valid, exp_id, group)
 
@@ -1502,7 +1520,7 @@ class Calibrations:
         else:
             schedule_name = schedule
 
-        key = ParameterKey(parameter, self._to_tuple(qubits), schedule_name)
+        key = ParameterKey(parameter, self._to_tuple(physical_qubits), schedule_name)
         self.add_parameter_value(param_val, *key, update_inst_map=False)
 
     @classmethod
