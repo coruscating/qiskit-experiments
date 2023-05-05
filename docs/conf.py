@@ -145,7 +145,8 @@ modindex_common_prefix = ["qiskit_experiments."]
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "qiskit_sphinx_theme"  # use the theme in subdir 'theme'
+# html_theme = "qiskit_sphinx_theme"  # use the theme in subdir 'theme'
+html_theme = "_qiskit_furo"
 
 html_context = {
     "analytics_enabled": True,
