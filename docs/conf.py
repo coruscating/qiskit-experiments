@@ -67,6 +67,23 @@ extensions = [
     "jupyter_execute_custom",
 ]
 
+# extensions = [
+#     "sphinx.ext.napoleon",
+#     "sphinx.ext.autodoc",
+#     "sphinx.ext.autosummary",
+#     "sphinx.ext.mathjax",
+#     "sphinx.ext.viewcode",
+#     "sphinx.ext.extlinks",
+#     "sphinx_copybutton",
+#     "sphinx_design",
+#     "sphinx.ext.intersphinx",
+#     "nbsphinx",
+#     "autoref",
+#     "autodoc_experiment",
+#     "autodoc_analysis",
+#     "autodoc_visualization",
+# ]
+
 html_static_path = ["_static"]
 templates_path = ["_templates"]
 
@@ -104,6 +121,8 @@ autodoc_typehints = "description"
 autodoc_typehints_description_target = "documented_params"
 
 autosummary_generate = True
+autosummary_generate_overwrite = False
+autoclass_content = "both"
 
 autodoc_default_options = {"inherited-members": None}
 
@@ -157,12 +176,12 @@ docs_url_prefix = "ecosystem/experiments"
 
 html_last_updated_fmt = "%Y/%m/%d"
 
-html_theme_options = {
-    "logo_only": True,
-    "display_version": True,
-    "prev_next_buttons_location": "bottom",
-    "style_external_links": True,
-}
+# html_theme_options = {
+#     "logo_only": True,
+#     "display_version": True,
+#     "prev_next_buttons_location": "bottom",
+#     "style_external_links": True,
+# }
 
 
 autoclass_content = "both"
@@ -211,7 +230,7 @@ def _get_version_label(current_version):
 
 def setup(app):
     app.connect("config-inited", _get_versions)
-    app.connect("autodoc-skip-member", maybe_skip_member)
+    # app.connect("autodoc-skip-member", maybe_skip_member)
 
 
 # Hardcoded list of class variables to skip in autodoc to avoid warnings

@@ -55,11 +55,11 @@ Calibrations management
 See :mod:`.calibration_management`.
 """
 
-from .rough_frequency import RoughFrequencyCal, RoughEFFrequencyCal
-from .rough_drag_cal import RoughDragCal
-from .rough_amplitude_cal import RoughAmplitudeCal, RoughXSXAmplitudeCal, EFRoughXSXAmplitudeCal
-from .fine_amplitude import FineAmplitudeCal, FineXAmplitudeCal, FineSXAmplitudeCal
-from .fine_drag_cal import FineDragCal, FineXDragCal, FineSXDragCal
-from .frequency_cal import FrequencyCal
-from .fine_frequency_cal import FineFrequencyCal
-from .half_angle_cal import HalfAngleCal
+# from .rough_frequency import RoughFrequencyCal, RoughEFFrequencyCal
+# from .rough_drag_cal import RoughDragCal
+# from .rough_amplitude_cal import RoughAmplitudeCal, RoughXSXAmplitudeCal, EFRoughXSXAmplitudeCal
+# from .fine_amplitude import FineAmplitudeCal, FineXAmplitudeCal, FineSXAmplitudeCal
+# from .fine_drag_cal import FineDragCal, FineXDragCal, FineSXDragCal
+# from .frequency_cal import FrequencyCal
+# from .fine_frequency_cal import FineFrequencyCal
+# from .half_angle_cal import HalfAngleCal
