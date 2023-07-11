@@ -65,6 +65,7 @@ extensions = [
     "autodoc_analysis",
     "autodoc_visualization",
     "jupyter_execute_custom",
+    "sphinx_remove_toctrees",
 ]
 
 html_static_path = ["_static"]
@@ -75,22 +76,25 @@ nbsphinx_execute = os.getenv("QISKIT_DOCS_BUILD_TUTORIALS", "never")
 nbsphinx_widgets_path = ""
 exclude_patterns = ["_build", "**.ipynb_checkpoints"]
 
+nbsphinx_thumbnails = {"**": "_static/images/logo.png"}
+
+
 # Thumbnails for experiment manuals from output images
 # These should ideally be automatically generated using a custom macro to specify
 # chosen cells for thumbnails, like the nbsphinx-gallery tag
-nbsphinx_thumbnails = {
-    "manuals/verification/quantum_volume": "_images/quantum_volume_2_0.png",
-    "manuals/measurement/readout_mitigation": "_images/readout_mitigation_4_0.png",
-    "manuals/verification/randomized_benchmarking": "_images/randomized_benchmarking_3_1.png",
-    "manuals/measurement/restless_measurements": "_images/restless_shots.png",
-    "manuals/verification/state_tomography": "_images/state_tomography_3_0.png",
-    "manuals/characterization/t1": "_images/t1_0_0.png",
-    "manuals/characterization/t2ramsey": "_images/t2ramsey_4_0.png",
-    "manuals/characterization/tphi": "_images/tphi_5_1.png",
-    "manuals/characterization/t2hahn": "_images/t2hahn_5_0.png",
-    "manuals/characterization/stark_experiment": "_images/stark_experiment_1_0.png",
-    "**": "_static/images/logo.png",
-}
+# nbsphinx_thumbnails = {
+#     "manuals/verification/quantum_volume": "_images/quantum_volume_2_0.png",
+#     "manuals/measurement/readout_mitigation": "_images/readout_mitigation_4_0.png",
+#     "manuals/verification/randomized_benchmarking": "_images/randomized_benchmarking_3_1.png",
+#     "manuals/measurement/restless_measurements": "_images/restless_shots.png",
+#     "manuals/verification/state_tomography": "_images/state_tomography_3_0.png",
+#     "manuals/characterization/t1": "_images/t1_0_0.png",
+#     "manuals/characterization/t2ramsey": "_images/t2ramsey_4_0.png",
+#     "manuals/characterization/tphi": "_images/tphi_5_1.png",
+#     "manuals/characterization/t2hahn": "_images/t2hahn_5_0.png",
+#     "manuals/characterization/stark_experiment": "_images/stark_experiment_1_0.png",
+#     "**": "_static/images/logo.png",
+# }
 
 # Add `data keys` and `style parameters` alias. Needed for `expected_*_data_keys` methods in
 # visualization module and `default_style` method in `PlotStyle` respectively.
@@ -146,7 +150,10 @@ modindex_common_prefix = ["qiskit_experiments."]
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "qiskit_sphinx_theme"  # use the theme in subdir 'theme'
+# html_theme = "qiskit_sphinx_theme"  # use the theme in subdir 'theme'
+html_theme = "qiskit"
+
+# remove_from_toctrees = ["stubs/*"]
 
 html_context = {
     "analytics_enabled": True,
@@ -157,12 +164,12 @@ docs_url_prefix = "ecosystem/experiments"
 
 html_last_updated_fmt = "%Y/%m/%d"
 
-html_theme_options = {
-    "logo_only": True,
-    "display_version": True,
-    "prev_next_buttons_location": "bottom",
-    "style_external_links": True,
-}
+# html_theme_options = {
+#     "logo_only": True,
+#     "display_version": True,
+#     "prev_next_buttons_location": "bottom",
+#     "style_external_links": True,
+# }
 
 
 autoclass_content = "both"
@@ -209,9 +216,93 @@ def _get_version_label(current_version):
         return "Development"
 
 
+from sphinx.application import Sphinx
+from sphinx.util.osutil import ensuredir
+from os import path
+from jinja2 import Environment, FileSystemLoader
+from bs4 import BeautifulSoup
+from os.path import join
+
+
+def write_sidebar(app: Sphinx, pagename, templatename, context, doctree):
+    sidebar_html = context["toctree"](
+        maxdepth=-1, collapse=True, titles_only=True, includehidden=True
+    )
+
+    output_path = join(app.builder.outdir, "_static", "sidebar.html")
+    with open(output_path, "w") as f:
+        f.write(get_navigation_tree(sidebar_html))
+
+
+def get_navigation_tree(toctree_html: str) -> str:
+    """Modify the given navigation tree, with furo-specific elements.
+
+    Adds a checkbox + corresponding label to <li>s that contain a <ul> tag, to enable
+    the I-spent-too-much-time-making-this-CSS-only collapsing sidebar tree.
+    """
+    soup = BeautifulSoup(toctree_html, "html.parser")
+
+    toctree_checkbox_count = 0
+    last_element_with_current = None
+    for element in soup.find_all("li", recursive=True):
+        # We check all "li" elements, to add a "current-page" to the correct li.
+        classes = element.get("class", [])
+        if "current" in classes:
+            last_element_with_current = element
+
+        # Nothing more to do, unless this has "children"
+        if not element.find("ul"):
+            continue
+
+        # Add a class to indicate that this has children.
+        element["class"] = classes + ["has-children"]
+
+        # We're gonna add a checkbox.
+        toctree_checkbox_count += 1
+        checkbox_name = f"toctree-checkbox-{toctree_checkbox_count}"
+
+        # Add the "label" for the checkbox which will get filled.
+        label = soup.new_tag(
+            "label",
+            attrs={
+                "for": checkbox_name,
+            },
+        )
+        screen_reader_label = soup.new_tag(
+            "div",
+            attrs={"class": "visually-hidden"},
+        )
+        screen_reader_label.string = f"Toggle navigation of {element.find('a').text}"
+        label.append(screen_reader_label)
+
+        element.insert(1, label)
+
+        # Add the checkbox that's used to store expanded/collapsed state.
+        checkbox = soup.new_tag(
+            "input",
+            attrs={
+                "type": "checkbox",
+                "class": ["toctree-checkbox"],
+                "id": checkbox_name,
+                "name": checkbox_name,
+                "role": "switch",
+            },
+        )
+        # if this has a "current" class, be expanded by default (by checking the checkbox)
+        if "current" in classes:
+            checkbox.attrs["checked"] = ""
+
+        element.insert(1, checkbox)
+
+    if last_element_with_current is not None:
+        last_element_with_current["class"].append("current-page")
+    return str(soup)
+
+
 def setup(app):
     app.connect("config-inited", _get_versions)
     app.connect("autodoc-skip-member", maybe_skip_member)
+    app.connect("html-page-context", write_sidebar)
 
 
 # Hardcoded list of class variables to skip in autodoc to avoid warnings
