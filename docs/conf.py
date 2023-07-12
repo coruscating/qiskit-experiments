@@ -225,6 +225,11 @@ from os.path import join
 
 
 def write_sidebar(app: Sphinx, pagename, templatename, context, doctree):
+
+    # only run once
+    if pagename != "index":
+        return
+
     sidebar_html = context["toctree"](
         maxdepth=-1, collapse=True, titles_only=True, includehidden=True
     )
