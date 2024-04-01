@@ -1798,20 +1798,15 @@ class ExperimentData:
                 except Exception:  # pylint: disable=broad-except:
                     LOG.error("Unable to save artifacts: %s", traceback.format_exc())
 
-            # Upload a blank file if the whole file should be deleted
-            # TODO: replace with direct artifact deletion when available
+            # Propagate deleted artifacts to artifact files
             for artifact_name in self._deleted_artifacts.copy():
                 try:  # Don't overwrite with a blank file if there's still artifacts with this name
                     self.artifacts(artifact_name)
                 except Exception:  # pylint: disable=broad-except:
                     with service_exception_to_warning():
-                        self.service.file_upload(
-                            experiment_id=self.experiment_id,
-                            file_name=f"{artifact_name}.zip",
-                            file_data=None,
+                        self.service.file_delete(
+                            experiment_id=self.experiment_id, file_pathname=f"{artifact_name}.zip"
                         )
-                # Even if we didn't overwrite an artifact file, we don't need to keep this because
-                # an existing artifact(s) needs to be deleted to delete the artifact file in the future
                 self._deleted_artifacts.remove(artifact_name)
 
         if not self.service.local and self.verbose:
